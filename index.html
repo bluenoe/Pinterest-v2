@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pinterest Gallery - Photo Explorer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="styles.css">
+    <link rel="manifest" href="manifest.json">
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        pinterest: {
+                            red: '#E60023',
+                            dark: '#111118',
+                            gray: '#767676',
+                            light: '#F7F7F7'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-gray-50 dark:bg-pinterest-dark transition-colors duration-300">
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+        <div class="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-sm mx-4">
+            <div class="flex items-center space-x-3">
+                <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-pinterest-red"></div>
+                <span class="text-gray-700 dark:text-gray-300">Loading images...</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Welcome Screen -->
+    <div id="welcomeScreen" class="fixed inset-0 bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center z-40">
+        <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-8 max-w-md mx-4 text-center">
+            <div class="mb-6">
+                <i class="fas fa-camera-retro text-5xl text-pinterest-red mb-4"></i>
+                <h1 class="text-3xl font-bold text-gray-800 dark:text-white mb-2">Welcome to Photo Gallery</h1>
+                <p class="text-gray-600 dark:text-gray-300">Discover your photos in a beautiful Pinterest-style layout</p>
+            </div>
+            
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Select your photo folder
+                    </label>
+                    <input type="file" id="folderInput" webkitdirectory directory multiple 
+                           class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-pinterest-red file:text-white hover:file:bg-red-600 cursor-pointer">
+                </div>
+                
+                <button id="startGallery" 
+                        class="w-full bg-pinterest-red hover:bg-red-600 text-white font-semibold py-3 px-6 rounded-lg transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled>
+                    Start Exploring
+                </button>
+            </div>
+            
+            <p class="text-xs text-gray-500 dark:text-gray-400 mt-4">
+                Your photos stay private - they're only processed locally in your browser
+            </p>
+        </div>
+    </div>
+
+    <!-- Main Gallery Container -->
+    <div id="galleryContainer" class="hidden">
+        <!-- Header -->
+        <header class="sticky top-0 bg-white dark:bg-gray-800 shadow-sm z-30 border-b border-gray-200 dark:border-gray-700">
+            <div class="max-w-7xl mx-auto px-4 py-3">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center space-x-4">
+                        <h1 class="text-2xl font-bold text-gray-800 dark:text-white flex items-center">
+                            <i class="fas fa-camera-retro text-pinterest-red mr-2"></i>
+                            Photo Gallery
+                        </h1>
+                        <span id="photoCount" class="text-sm text-gray-500 dark:text-gray-400"></span>
+                    </div>
+                    
+                    <div class="flex items-center space-x-4">
+                        <!-- Search Bar -->
+                        <div class="relative">
+                            <input type="text" id="searchInput" placeholder="Search photos..." 
+                                   class="w-64 pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 focus:ring-2 focus:ring-pinterest-red focus:border-transparent">
+                            <i class="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"></i>
+                        </div>
+                        
+                        <!-- View Toggle -->
+                        <div class="flex items-center space-x-2">
+                            <button id="favoritesToggle" class="p-2 text-gray-600 dark:text-gray-400 hover:text-pinterest-red transition-colors">
+                                <i class="fas fa-heart"></i>
+                            </button>
+                            <button id="slideshowBtn" class="p-2 text-gray-600 dark:text-gray-400 hover:text-pinterest-red transition-colors">
+                                <i class="fas fa-play"></i>
+                            </button>
+                            <button id="darkModeToggle" class="p-2 text-gray-600 dark:text-gray-400 hover:text-pinterest-red transition-colors">
+                                <i class="fas fa-moon dark:hidden"></i>
+                                <i class="fas fa-sun hidden dark:block"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Album Selector -->
+                <div id="albumSelector" class="mt-3 hidden">
+                    <select id="albumSelect" class="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 focus:ring-2 focus:ring-pinterest-red">
+                        <option value="all">All Photos</option>
+                    </select>
+                </div>
+            </div>
+        </header>
+
+        <!-- Gallery Grid -->
+        <main class="max-w-7xl mx-auto p-4">
+            <div id="galleryGrid" class="masonry-grid"></div>
+            
+            <!-- Load More Button -->
+            <div id="loadMoreContainer" class="text-center mt-8 hidden">
+                <button id="loadMoreBtn" class="bg-pinterest-red hover:bg-red-600 text-white font-semibold py-3 px-8 rounded-lg transition-colors duration-200">
+                    Load More Photos
+                </button>
+            </div>
+            
+            <!-- No Results Message -->
+            <div id="noResults" class="text-center py-16 hidden">
+                <i class="fas fa-search text-4xl text-gray-400 mb-4"></i>
+                <h3 class="text-xl font-semibold text-gray-600 dark:text-gray-400 mb-2">No photos found</h3>
+                <p class="text-gray-500 dark:text-gray-500">Try adjusting your search or filter criteria</p>
+            </div>
+        </main>
+    </div>
+
+    <!-- Lightbox Modal -->
+    <div id="lightbox" class="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50 hidden">
+        <button id="closeLightbox" class="absolute top-4 right-4 text-white text-2xl hover:text-gray-300 z-10">
+            <i class="fas fa-times"></i>
+        </button>
+        
+        <!-- Navigation Buttons -->
+        <button id="prevImage" class="absolute left-4 top-1/2 transform -translate-y-1/2 text-white text-3xl hover:text-gray-300 z-10">
+            <i class="fas fa-chevron-left"></i>
+        </button>
+        <button id="nextImage" class="absolute right-4 top-1/2 transform -translate-y-1/2 text-white text-3xl hover:text-gray-300 z-10">
+            <i class="fas fa-chevron-right"></i>
+        </button>
+        
+        <!-- Lightbox Content Container -->
+        <div class="lightbox-content-container">
+            <!-- Image Container -->
+            <div class="lightbox-image-container">
+                <img id="lightboxImage" class="lightbox-image" alt="">
+            </div>
+            
+            <!-- Image Info Bar (Outside Image Area) -->
+            <div class="lightbox-info-bar">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h3 id="lightboxTitle" class="font-semibold mb-1"></h3>
+                        <p id="lightboxInfo" class="text-sm text-gray-300"></p>
+                    </div>
+                    <div class="flex items-center space-x-3">
+                        <button id="favoriteBtn" class="text-xl hover:scale-110 transition-transform">
+                            <i class="far fa-heart"></i>
+                        </button>
+                        <button id="downloadBtn" class="text-xl hover:scale-110 transition-transform">
+                            <i class="fas fa-download"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Slideshow Controls -->
+    <div id="slideshowControls" class="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-black bg-opacity-70 text-white px-6 py-3 rounded-full z-60 hidden">
+        <div class="flex items-center space-x-4">
+            <button id="slideshowPrevBtn" class="hover:text-gray-300">
+                <i class="fas fa-step-backward"></i>
+            </button>
+            <button id="slideshowPlayPauseBtn" class="hover:text-gray-300">
+                <i class="fas fa-pause"></i>
+            </button>
+            <button id="slideshowNextBtn" class="hover:text-gray-300">
+                <i class="fas fa-step-forward"></i>
+            </button>
+            <div class="border-l border-gray-500 pl-4 ml-4">
+                <select id="slideshowInterval" class="bg-transparent text-white text-sm">
+                    <option value="2000">2s</option>
+                    <option value="3000" selected>3s</option>
+                    <option value="5000">5s</option>
+                    <option value="7000">7s</option>
+                    <option value="10000">10s</option>
+                </select>
+            </div>
+            <button id="slideshowStopBtn" class="text-red-400 hover:text-red-300 ml-2">
+                <i class="fas fa-stop"></i>
+            </button>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

@@ -1,0 +1,33 @@
+{
+  "name": "Pinterest Photo Gallery",
+  "short_name": "Photo Gallery",
+  "description": "A beautiful Pinterest-style photo gallery for exploring your local images",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#E60023",
+  "orientation": "portrait-primary",
+  "categories": ["photo", "gallery", "entertainment"],
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='50' fill='%23E60023'/%3E%3Ctext x='50' y='65' font-family='Arial' font-size='60' fill='white' text-anchor='middle'%3E📷%3C/text%3E%3C/svg%3E",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Open Gallery",
+      "short_name": "Gallery",
+      "description": "Open the photo gallery",
+      "url": "/",
+      "icons": [
+        {
+          "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='50' fill='%23E60023'/%3E%3Ctext x='50' y='65' font-family='Arial' font-size='40' fill='white' text-anchor='middle'%3E🖼️%3C/text%3E%3C/svg%3E",
+          "sizes": "96x96"
+        }
+      ]
+    }
+  ]
+}
