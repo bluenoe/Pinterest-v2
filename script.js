@@ -20,6 +20,12 @@ class PhotoGallery {
         this.initializeEventListeners();
         this.initializeDarkMode();
         this.initializeLazyLoading();
+        
+        // Initialize favorites display on startup
+        this.updateFavoritesToggle();
+        
+        // Debug: Log favorites loaded from storage
+        console.log('Favorites loaded from storage:', this.favorites.size, 'items');
     }
 
     initializeElements() {
@@ -74,7 +80,14 @@ class PhotoGallery {
         document.getElementById('closeLightbox').addEventListener('click', () => this.closeLightbox());
         document.getElementById('prevImage').addEventListener('click', () => this.navigateImage(-1));
         document.getElementById('nextImage').addEventListener('click', () => this.navigateImage(1));
-        this.favoriteBtn.addEventListener('click', () => this.toggleFavorite());
+        
+        // Lightbox favorite button with error handling
+        this.favoriteBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            this.toggleFavorite();
+        });
+        
         this.downloadBtn.addEventListener('click', () => this.downloadImage());
         
         // Theme and slideshow events
@@ -179,6 +192,8 @@ class PhotoGallery {
             this.organizeAlbums();
             this.renderGallery();
             this.updatePhotoCount();
+            // Initialize favorites display after gallery loads
+            this.updateFavoritesToggle();
         } catch (error) {
             console.error('Error starting gallery:', error);
             this.showError('Failed to load images. Please try again.');
@@ -303,7 +318,7 @@ class PhotoGallery {
                 </div>
             </div>
             <div class="gallery-item-actions">
-                <button class="gallery-action-btn favorite-btn ${isFavorited ? 'favorited' : ''}" data-image-id="${image.id}">
+                <button class="gallery-action-btn favorite-btn ${isFavorited ? 'favorited' : ''}" data-image-id="${image.id}" title="${isFavorited ? 'Remove from favorites' : 'Add to favorites'}">
                     <i class="${isFavorited ? 'fas' : 'far'} fa-heart"></i>
                 </button>
             </div>
@@ -316,18 +331,27 @@ class PhotoGallery {
             }
         });
         
-        // Add favorite button event
+        // Add favorite button event with error handling
         const favoriteBtn = item.querySelector('.favorite-btn');
-        favoriteBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            this.toggleImageFavorite(image.id);
-        });
+        if (favoriteBtn) {
+            favoriteBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                try {
+                    this.toggleImageFavorite(image.id);
+                } catch (error) {
+                    console.error('Error in favorite button click:', error);
+                }
+            });
+        }
         
         this.galleryGrid.appendChild(item);
         
         // Observe for lazy loading
         const img = item.querySelector('img');
-        this.lazyLoadObserver.observe(img);
+        if (img) {
+            this.lazyLoadObserver.observe(img);
+        }
     }
 
     openLightbox(index) {
@@ -379,36 +403,70 @@ class PhotoGallery {
     }
 
     toggleFavorite() {
-        if (this.currentIndex >= 0 && this.currentIndex < this.filteredImages.length) {
-            const image = this.filteredImages[this.currentIndex];
-            this.toggleImageFavorite(image.id);
-            this.updateLightboxImage();
+        try {
+            if (this.currentIndex >= 0 && this.currentIndex < this.filteredImages.length) {
+                const image = this.filteredImages[this.currentIndex];
+                if (image && image.id) {
+                    this.toggleImageFavorite(image.id);
+                    this.updateLightboxImage();
+                } else {
+                    console.warn('toggleFavorite: Invalid image data');
+                }
+            } else {
+                console.warn('toggleFavorite: Invalid current index');
+            }
+        } catch (error) {
+            console.error('Error in toggleFavorite:', error);
+            this.showError('Failed to toggle favorite. Please try again.');
         }
     }
 
     toggleImageFavorite(imageId) {
-        if (this.favorites.has(imageId)) {
-            this.favorites.delete(imageId);
-        } else {
-            this.favorites.add(imageId);
-        }
-        
-        // Update localStorage
-        localStorage.setItem('gallery-favorites', JSON.stringify([...this.favorites]));
-        
-        // Update UI
-        document.querySelectorAll(`[data-image-id="${imageId}"]`).forEach(btn => {
-            const isFavorited = this.favorites.has(imageId);
-            btn.classList.toggle('favorited', isFavorited);
-            btn.innerHTML = `<i class="${isFavorited ? 'fas' : 'far'} fa-heart"></i>`;
-        });
-        
-        // Update favorites toggle badge
-        this.updateFavoritesToggle();
-        
-        // Refresh gallery if showing favorites only
-        if (this.showFavoritesOnly) {
-            this.applyFilters();
+        try {
+            if (!imageId) {
+                console.warn('toggleImageFavorite: Invalid imageId provided');
+                return;
+            }
+            
+            if (this.favorites.has(imageId)) {
+                this.favorites.delete(imageId);
+            } else {
+                this.favorites.add(imageId);
+            }
+            
+            // Update localStorage
+            localStorage.setItem('gallery-favorites', JSON.stringify([...this.favorites]));
+            
+            // Update UI for gallery items
+            document.querySelectorAll(`[data-image-id="${imageId}"]`).forEach(btn => {
+                const isFavorited = this.favorites.has(imageId);
+                btn.classList.toggle('favorited', isFavorited);
+                btn.innerHTML = `<i class="${isFavorited ? 'fas' : 'far'} fa-heart"></i>`;
+            });
+            
+            // Update lightbox favorite button if lightbox is open
+            if (this.isLightboxOpen && this.favoriteBtn) {
+                const currentImage = this.filteredImages[this.currentIndex];
+                if (currentImage && currentImage.id === imageId) {
+                    const isFavorited = this.favorites.has(imageId);
+                    this.favoriteBtn.innerHTML = `<i class="${isFavorited ? 'fas' : 'far'} fa-heart"></i>`;
+                    this.favoriteBtn.classList.toggle('text-red-500', isFavorited);
+                }
+            }
+            
+            // Update favorites toggle badge
+            this.updateFavoritesToggle();
+            
+            // Update photo count display
+            this.updatePhotoCount();
+            
+            // Refresh gallery if showing favorites only
+            if (this.showFavoritesOnly) {
+                this.applyFilters();
+            }
+        } catch (error) {
+            console.error('Error toggling favorite:', error);
+            this.showError('Failed to update favorite. Please try again.');
         }
     }
 
@@ -533,19 +591,29 @@ class PhotoGallery {
     }
 
     updateFavoritesToggle() {
-        const count = this.favorites.size;
-        if (count > 0) {
-            if (!this.favoritesToggle.querySelector('.favorites-badge')) {
-                const badge = document.createElement('span');
-                badge.className = 'favorites-badge';
-                badge.textContent = count;
-                this.favoritesToggle.appendChild(badge);
-            } else {
-                this.favoritesToggle.querySelector('.favorites-badge').textContent = count;
+        try {
+            // Ensure favoritesToggle element exists
+            if (!this.favoritesToggle) {
+                console.warn('favoritesToggle element not found');
+                return;
             }
-        } else {
-            const badge = this.favoritesToggle.querySelector('.favorites-badge');
-            if (badge) badge.remove();
+            
+            const count = this.favorites.size;
+            if (count > 0) {
+                if (!this.favoritesToggle.querySelector('.favorites-badge')) {
+                    const badge = document.createElement('span');
+                    badge.className = 'favorites-badge';
+                    badge.textContent = count;
+                    this.favoritesToggle.appendChild(badge);
+                } else {
+                    this.favoritesToggle.querySelector('.favorites-badge').textContent = count;
+                }
+            } else {
+                const badge = this.favoritesToggle.querySelector('.favorites-badge');
+                if (badge) badge.remove();
+            }
+        } catch (error) {
+            console.error('Error updating favorites toggle:', error);
         }
     }
 
@@ -595,7 +663,19 @@ class PhotoGallery {
     }
 
     showError(message) {
-        alert(message); // In a real app, you'd use a more sophisticated notification system
+        console.error('Gallery Error:', message);
+        // Create a simple error notification
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'fixed top-4 right-4 bg-red-500 text-white px-4 py-2 rounded-lg shadow-lg z-50';
+        errorDiv.textContent = message;
+        document.body.appendChild(errorDiv);
+        
+        // Auto-remove after 5 seconds
+        setTimeout(() => {
+            if (errorDiv.parentNode) {
+                errorDiv.parentNode.removeChild(errorDiv);
+            }
+        }, 5000);
     }
 
     formatFileSize(bytes) {

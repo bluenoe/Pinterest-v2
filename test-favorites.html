@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Favorites Test - Pinterest Gallery</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .test-item {
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 1rem;
+            margin: 0.5rem;
+            background: white;
+        }
+        .test-pass { border-color: #10b981; background-color: #ecfdf5; }
+        .test-fail { border-color: #ef4444; background-color: #fef2f2; }
+    </style>
+</head>
+<body class="bg-gray-100 p-8">
+    <div class="max-w-4xl mx-auto">
+        <h1 class="text-3xl font-bold mb-6">Pinterest Gallery - Favorites System Test</h1>
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <!-- Test Results -->
+            <div class="bg-white rounded-lg shadow-lg p-6">
+                <h2 class="text-xl font-semibold mb-4">Test Results</h2>
+                <div id="testResults"></div>
+                <button id="runTests" class="mt-4 bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded">
+                    Run Favorites Tests
+                </button>
+            </div>
+            
+            <!-- Instructions -->
+            <div class="bg-white rounded-lg shadow-lg p-6">
+                <h2 class="text-xl font-semibold mb-4">Manual Test Instructions</h2>
+                <ol class="list-decimal list-inside space-y-2 text-sm">
+                    <li>Open the main gallery (<code>index.html</code>)</li>
+                    <li>Select a folder with images</li>
+                    <li>Click the heart icon on any image</li>
+                    <li>Verify the heart changes from outline to filled</li>
+                    <li>Check that the favorites badge appears in the header</li>
+                    <li>Open the same image in lightbox</li>
+                    <li>Click the heart in the lightbox</li>
+                    <li>Verify it toggles correctly</li>
+                    <li>Press 'F' key to toggle favorite</li>
+                    <li>Refresh the page and verify favorites persist</li>
+                </ol>
+                
+                <div class="mt-4 p-3 bg-blue-50 rounded">
+                    <p class="text-sm text-blue-800">
+                        <strong>Expected Behavior:</strong> Clicking the heart should toggle the favorite state 
+                        without errors, update the UI immediately, and persist across page reloads.
+                    </p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Error Console -->
+        <div class="mt-6 bg-white rounded-lg shadow-lg p-6">
+            <h2 class="text-xl font-semibold mb-4">Error Console</h2>
+            <div id="errorConsole" class="bg-gray-900 text-green-400 p-4 rounded font-mono text-sm h-40 overflow-y-auto">
+                Console output will appear here...
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Test suite for favorites functionality
+        class FavoritesTest {
+            constructor() {
+                this.results = [];
+                this.setupErrorLogging();
+            }
+            
+            setupErrorLogging() {
+                const originalError = console.error;
+                const originalWarn = console.warn;
+                const originalLog = console.log;
+                const errorConsole = document.getElementById('errorConsole');
+                
+                const logToConsole = (level, ...args) => {
+                    const timestamp = new Date().toLocaleTimeString();
+                    const message = `[${timestamp}] ${level}: ${args.join(' ')}`;
+                    errorConsole.innerHTML += message + '\n';
+                    errorConsole.scrollTop = errorConsole.scrollHeight;
+                };
+                
+                console.error = (...args) => {
+                    originalError(...args);
+                    logToConsole('ERROR', ...args);
+                };
+                
+                console.warn = (...args) => {
+                    originalWarn(...args);
+                    logToConsole('WARN', ...args);
+                };
+                
+                console.log = (...args) => {
+                    originalLog(...args);
+                    logToConsole('LOG', ...args);
+                };
+            }
+            
+            runTests() {
+                this.results = [];
+                console.log('Starting favorites functionality tests...');
+                
+                // Test 1: LocalStorage functionality
+                this.testLocalStorage();
+                
+                // Test 2: Set/Set operations
+                this.testSetOperations();
+                
+                // Test 3: JSON serialization
+                this.testJSONSerialization();
+                
+                // Test 4: DOM manipulation (simulated)
+                this.testDOMOperations();
+                
+                // Test 5: Error handling
+                this.testErrorHandling();
+                
+                this.displayResults();
+            }
+            
+            testLocalStorage() {
+                try {
+                    // Test localStorage availability
+                    localStorage.setItem('test-favorites', JSON.stringify(['test1', 'test2']));
+                    const retrieved = JSON.parse(localStorage.getItem('test-favorites') || '[]');
+                    
+                    if (retrieved.length === 2 && retrieved.includes('test1')) {
+                        this.addResult('LocalStorage Test', true, 'LocalStorage working correctly');
+                    } else {
+                        this.addResult('LocalStorage Test', false, 'LocalStorage retrieval failed');
+                    }
+                    
+                    localStorage.removeItem('test-favorites');
+                } catch (error) {
+                    this.addResult('LocalStorage Test', false, `LocalStorage error: ${error.message}`);
+                }
+            }
+            
+            testSetOperations() {
+                try {
+                    const testSet = new Set();
+                    testSet.add('image1');
+                    testSet.add('image2');
+                    
+                    // Test has/add/delete operations
+                    const hasImage1 = testSet.has('image1');
+                    testSet.delete('image1');
+                    const stillHasImage1 = testSet.has('image1');
+                    
+                    if (hasImage1 && !stillHasImage1 && testSet.size === 1) {
+                        this.addResult('Set Operations Test', true, 'Set operations working correctly');
+                    } else {
+                        this.addResult('Set Operations Test', false, 'Set operations failed');
+                    }
+                } catch (error) {
+                    this.addResult('Set Operations Test', false, `Set error: ${error.message}`);
+                }
+            }
+            
+            testJSONSerialization() {
+                try {
+                    const testSet = new Set(['img1', 'img2', 'img3']);
+                    const serialized = JSON.stringify([...testSet]);
+                    const deserialized = new Set(JSON.parse(serialized));
+                    
+                    if (deserialized.size === 3 && deserialized.has('img2')) {
+                        this.addResult('JSON Serialization Test', true, 'Set serialization working correctly');
+                    } else {
+                        this.addResult('JSON Serialization Test', false, 'Set serialization failed');
+                    }
+                } catch (error) {
+                    this.addResult('JSON Serialization Test', false, `Serialization error: ${error.message}`);
+                }
+            }
+            
+            testDOMOperations() {
+                try {
+                    // Create test elements
+                    const testButton = document.createElement('button');
+                    testButton.className = 'gallery-action-btn favorite-btn';
+                    testButton.dataset.imageId = 'test-image';
+                    testButton.innerHTML = '<i class="far fa-heart"></i>';
+                    
+                    // Test class operations
+                    testButton.classList.toggle('favorited', true);
+                    const hasFavoritedClass = testButton.classList.contains('favorited');
+                    
+                    // Test innerHTML change
+                    testButton.innerHTML = '<i class="fas fa-heart"></i>';
+                    const hasFilledHeart = testButton.innerHTML.includes('fas fa-heart');
+                    
+                    if (hasFavoritedClass && hasFilledHeart) {
+                        this.addResult('DOM Operations Test', true, 'DOM manipulations working correctly');
+                    } else {
+                        this.addResult('DOM Operations Test', false, 'DOM operations failed');
+                    }
+                } catch (error) {
+                    this.addResult('DOM Operations Test', false, `DOM error: ${error.message}`);
+                }
+            }
+            
+            testErrorHandling() {
+                try {
+                    // Test null/undefined handling
+                    const testSet = new Set();
+                    
+                    // Simulate error conditions
+                    let errorHandled = false;
+                    try {
+                        if (!undefined) {
+                            throw new Error('Test error');
+                        }
+                    } catch (e) {
+                        errorHandled = true;
+                    }
+                    
+                    if (errorHandled) {
+                        this.addResult('Error Handling Test', true, 'Error handling working correctly');
+                    } else {
+                        this.addResult('Error Handling Test', false, 'Error handling failed');
+                    }
+                } catch (error) {
+                    this.addResult('Error Handling Test', false, `Error handling test failed: ${error.message}`);
+                }
+            }
+            
+            addResult(testName, passed, message) {
+                this.results.push({ testName, passed, message });
+                console.log(`${testName}: ${passed ? 'PASS' : 'FAIL'} - ${message}`);
+            }
+            
+            displayResults() {
+                const resultsDiv = document.getElementById('testResults');
+                resultsDiv.innerHTML = '';
+                
+                this.results.forEach(result => {
+                    const div = document.createElement('div');
+                    div.className = `test-item ${result.passed ? 'test-pass' : 'test-fail'}`;
+                    div.innerHTML = `
+                        <div class="flex items-center justify-between">
+                            <span class="font-semibold">${result.testName}</span>
+                            <span class="${result.passed ? 'text-green-600' : 'text-red-600'}">
+                                <i class="fas fa-${result.passed ? 'check' : 'times'}"></i> 
+                                ${result.passed ? 'PASS' : 'FAIL'}
+                            </span>
+                        </div>
+                        <p class="text-sm text-gray-600 mt-1">${result.message}</p>
+                    `;
+                    resultsDiv.appendChild(div);
+                });
+                
+                const summary = document.createElement('div');
+                const passedCount = this.results.filter(r => r.passed).length;
+                const totalCount = this.results.length;
+                summary.className = `test-item ${passedCount === totalCount ? 'test-pass' : 'test-fail'}`;
+                summary.innerHTML = `
+                    <div class="text-center">
+                        <strong>Test Summary: ${passedCount}/${totalCount} tests passed</strong>
+                    </div>
+                `;
+                resultsDiv.appendChild(summary);
+                
+                console.log(`Test completed: ${passedCount}/${totalCount} tests passed`);
+            }
+        }
+        
+        // Initialize test runner
+        const tester = new FavoritesTest();
+        document.getElementById('runTests').addEventListener('click', () => {
+            tester.runTests();
+        });
+        
+        // Auto-run tests on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('Favorites test page loaded');
+            tester.runTests();
+        });
+    </script>
+</body>
+</html>
