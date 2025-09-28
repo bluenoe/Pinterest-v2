@@ -366,6 +366,18 @@ class PhotoGallery {
         this.isLightboxOpen = false;
         this.lightbox.classList.add('hidden');
         document.body.style.overflow = '';
+        
+        // Disable fullscreen slideshow mode
+        const contentContainer = document.querySelector('.lightbox-content-container');
+        if (contentContainer) {
+            contentContainer.classList.remove('slideshow-mode');
+        }
+        
+        // Remove slideshow mode class from lightbox
+        if (this.lightbox) {
+            this.lightbox.classList.remove('slideshow-mode');
+        }
+        
         if (this.isSlideshow) {
             this.stopSlideshow();
         }
@@ -493,6 +505,15 @@ class PhotoGallery {
         this.slideshowControls.classList.remove('hidden');
         this.slideshowBtn.innerHTML = '<i class="fas fa-stop"></i>';
         
+        // Enable fullscreen slideshow mode
+        const contentContainer = document.querySelector('.lightbox-content-container');
+        if (contentContainer) {
+            contentContainer.classList.add('slideshow-mode');
+        }
+        
+        // Add slideshow mode class to lightbox
+        this.lightbox.classList.add('slideshow-mode');
+        
         this.restartSlideshowTimer();
         
         // Update play/pause button
@@ -503,6 +524,17 @@ class PhotoGallery {
         this.isSlideshow = false;
         this.slideshowControls.classList.add('hidden');
         this.slideshowBtn.innerHTML = '<i class="fas fa-play"></i>';
+        
+        // Disable fullscreen slideshow mode
+        const contentContainer = document.querySelector('.lightbox-content-container');
+        if (contentContainer) {
+            contentContainer.classList.remove('slideshow-mode');
+        }
+        
+        // Remove slideshow mode class from lightbox
+        if (this.lightbox) {
+            this.lightbox.classList.remove('slideshow-mode');
+        }
         
         if (this.slideshowTimer) {
             clearInterval(this.slideshowTimer);
