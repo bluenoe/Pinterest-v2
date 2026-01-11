@@ -14,6 +14,7 @@ class PhotoGallery {
         this.showFavoritesOnly = false;
         this.currentAlbum = 'all';
         this.albums = new Map();
+        this.selectedFolders = []; // Array of {name: string, files: File[]}
         this.lazyLoadObserver = null;
         
         this.initializeElements();
@@ -33,6 +34,8 @@ class PhotoGallery {
         this.welcomeScreen = document.getElementById('welcomeScreen');
         this.folderInput = document.getElementById('folderInput');
         this.startGalleryBtn = document.getElementById('startGallery');
+        this.addFolderBtn = document.getElementById('addFolderBtn');
+        this.selectedFoldersList = document.getElementById('selectedFoldersList');
         
         // Gallery container elements
         this.galleryContainer = document.getElementById('galleryContainer');
@@ -69,6 +72,7 @@ class PhotoGallery {
     initializeEventListeners() {
         // Welcome screen events
         this.folderInput.addEventListener('change', (e) => this.handleFolderSelection(e));
+        this.addFolderBtn.addEventListener('click', () => this.addCurrentFolder());
         this.startGalleryBtn.addEventListener('click', () => this.startGallery());
         
         // Search and filter events
@@ -158,13 +162,78 @@ class PhotoGallery {
     async handleFolderSelection(event) {
         const files = Array.from(event.target.files);
         if (files.length > 0) {
+            // Store temporarily for adding
+            this.pendingFiles = files;
+            // Auto-add if no folders yet, otherwise user clicks Add button
+            if (this.selectedFolders.length === 0) {
+                this.addCurrentFolder();
+            } else {
+                // Show hint that they can click Add
+                this.addFolderBtn.classList.add('ring-2', 'ring-pinterest-red');
+                setTimeout(() => this.addFolderBtn.classList.remove('ring-2', 'ring-pinterest-red'), 2000);
+            }
+        }
+    }
+
+    addCurrentFolder() {
+        const files = this.pendingFiles || Array.from(this.folderInput.files);
+        if (!files || files.length === 0) return;
+
+        // Get folder name from path
+        const firstFile = files[0];
+        const pathParts = firstFile.webkitRelativePath ? firstFile.webkitRelativePath.split('/') : [];
+        const folderName = pathParts.length > 0 ? pathParts[0] : 'Folder ' + (this.selectedFolders.length + 1);
+
+        // Check if folder already added
+        if (this.selectedFolders.some(f => f.name === folderName)) {
+            this.showError(`Folder "${folderName}" đã được thêm rồi!`);
+            return;
+        }
+
+        // Add to selected folders
+        this.selectedFolders.push({
+            name: folderName,
+            files: files
+        });
+
+        // Clear pending and input
+        this.pendingFiles = null;
+        this.folderInput.value = '';
+
+        // Update UI
+        this.renderSelectedFolders();
+    }
+
+    renderSelectedFolders() {
+        const totalFiles = this.selectedFolders.reduce((sum, f) => sum + f.files.length, 0);
+        
+        // Update button state
+        if (this.selectedFolders.length > 0) {
             this.startGalleryBtn.disabled = false;
-            this.startGalleryBtn.textContent = `Explore ${files.length} files`;
-            this.selectedFiles = files;
+            this.startGalleryBtn.textContent = `Explore ${totalFiles} files from ${this.selectedFolders.length} folder${this.selectedFolders.length > 1 ? 's' : ''}`;
         } else {
             this.startGalleryBtn.disabled = true;
             this.startGalleryBtn.textContent = 'Start Exploring';
         }
+
+        // Render folder list
+        this.selectedFoldersList.innerHTML = this.selectedFolders.map((folder, index) => `
+            <div class="flex items-center justify-between bg-gray-100 dark:bg-gray-700 rounded-lg px-3 py-2">
+                <div class="flex items-center gap-2">
+                    <i class="fas fa-folder text-pinterest-red"></i>
+                    <span class="text-sm text-gray-700 dark:text-gray-300 font-medium">${folder.name}</span>
+                    <span class="text-xs text-gray-500 dark:text-gray-400">(${folder.files.length} files)</span>
+                </div>
+                <button onclick="gallery.removeFolder(${index})" class="text-gray-400 hover:text-red-500 transition-colors p-1" title="Remove folder">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+        `).join('');
+    }
+
+    removeFolder(index) {
+        this.selectedFolders.splice(index, 1);
+        this.renderSelectedFolders();
     }
 
     async handleDroppedFiles(files) {
@@ -181,14 +250,18 @@ class PhotoGallery {
     }
 
     async startGallery() {
-        if (!this.selectedFiles || this.selectedFiles.length === 0) return;
+        if (!this.selectedFolders || this.selectedFolders.length === 0) return;
+        
+        // Combine all files from selected folders
+        const allFiles = this.selectedFolders.flatMap(folder => folder.files);
+        if (allFiles.length === 0) return;
         
         this.showLoading(true);
         this.welcomeScreen.style.display = 'none';
         this.galleryContainer.classList.remove('hidden');
         
         try {
-            await this.processImages(this.selectedFiles);
+            await this.processImages(allFiles);
             this.organizeAlbums();
             this.renderGallery();
             this.updatePhotoCount();

@@ -49,11 +49,20 @@
             <div class="space-y-4">
                 <div>
                     <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Select your photo folder
+                        Select your photo folders
                     </label>
-                    <input type="file" id="folderInput" webkitdirectory directory multiple 
-                           class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-pinterest-red file:text-white hover:file:bg-red-600 cursor-pointer">
+                    <div class="flex gap-2">
+                        <input type="file" id="folderInput" webkitdirectory directory 
+                               class="flex-1 text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-pinterest-red file:text-white hover:file:bg-red-600 cursor-pointer">
+                        <button id="addFolderBtn" type="button"
+                                class="px-4 py-2 bg-gray-200 dark:bg-gray-600 hover:bg-gray-300 dark:hover:bg-gray-500 text-gray-700 dark:text-gray-200 font-medium rounded-full transition-colors duration-200 text-sm whitespace-nowrap">
+                            <i class="fas fa-plus mr-1"></i> Add
+                        </button>
+                    </div>
                 </div>
+                
+                <!-- Selected Folders List -->
+                <div id="selectedFoldersList" class="space-y-2 max-h-48 overflow-y-auto"></div>
                 
                 <button id="startGallery" 
                         class="w-full bg-pinterest-red hover:bg-red-600 text-white font-semibold py-3 px-6 rounded-lg transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
