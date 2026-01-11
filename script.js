@@ -16,15 +16,18 @@ class PhotoGallery {
         this.albums = new Map();
         this.selectedFolders = []; // Array of {name: string, files: File[]}
         this.lazyLoadObserver = null;
-        
+        this.infiniteScrollObserver = null;
+        this.isAutoScrolling = false;
+        this.autoScrollSpeed = 1; // pixels per frame
+
         this.initializeElements();
         this.initializeEventListeners();
         this.initializeDarkMode();
         this.initializeLazyLoading();
-        
+
         // Initialize favorites display on startup
         this.updateFavoritesToggle();
-        
+
         // Debug: Log favorites loaded from storage
         console.log('Favorites loaded from storage:', this.favorites.size, 'items');
     }
@@ -36,20 +39,20 @@ class PhotoGallery {
         this.startGalleryBtn = document.getElementById('startGallery');
         this.addFolderBtn = document.getElementById('addFolderBtn');
         this.selectedFoldersList = document.getElementById('selectedFoldersList');
-        
+
         // Gallery container elements
         this.galleryContainer = document.getElementById('galleryContainer');
         this.galleryGrid = document.getElementById('galleryGrid');
         this.loadingOverlay = document.getElementById('loadingOverlay');
         this.photoCount = document.getElementById('photoCount');
         this.noResults = document.getElementById('noResults');
-        
+
         // Search and filter elements
         this.searchInput = document.getElementById('searchInput');
         this.albumSelector = document.getElementById('albumSelector');
         this.albumSelect = document.getElementById('albumSelect');
         this.favoritesToggle = document.getElementById('favoritesToggle');
-        
+
         // Lightbox elements
         this.lightbox = document.getElementById('lightbox');
         this.lightboxImage = document.getElementById('lightboxImage');
@@ -57,16 +60,17 @@ class PhotoGallery {
         this.lightboxInfo = document.getElementById('lightboxInfo');
         this.favoriteBtn = document.getElementById('favoriteBtn');
         this.downloadBtn = document.getElementById('downloadBtn');
-        
+
         // Control elements
         this.darkModeToggle = document.getElementById('darkModeToggle');
         this.slideshowBtn = document.getElementById('slideshowBtn');
         this.loadMoreBtn = document.getElementById('loadMoreBtn');
         this.loadMoreContainer = document.getElementById('loadMoreContainer');
-        
+
         // Slideshow elements
         this.slideshowControls = document.getElementById('slideshowControls');
         this.slideshowInterval = document.getElementById('slideshowInterval');
+        this.autoScrollBtn = document.getElementById('autoScrollBtn');
     }
 
     initializeEventListeners() {
@@ -74,31 +78,35 @@ class PhotoGallery {
         this.folderInput.addEventListener('change', (e) => this.handleFolderSelection(e));
         this.addFolderBtn.addEventListener('click', () => this.addCurrentFolder());
         this.startGalleryBtn.addEventListener('click', () => this.startGallery());
-        
+
         // Search and filter events
         this.searchInput.addEventListener('input', (e) => this.handleSearch(e.target.value));
         this.albumSelect.addEventListener('change', (e) => this.handleAlbumChange(e.target.value));
         this.favoritesToggle.addEventListener('click', () => this.toggleFavoritesView());
-        
+
         // Lightbox events
         document.getElementById('closeLightbox').addEventListener('click', () => this.closeLightbox());
         document.getElementById('prevImage').addEventListener('click', () => this.navigateImage(-1));
         document.getElementById('nextImage').addEventListener('click', () => this.navigateImage(1));
-        
+
         // Lightbox favorite button with error handling
         this.favoriteBtn.addEventListener('click', (e) => {
             e.preventDefault();
             e.stopPropagation();
             this.toggleFavorite();
         });
-        
+
         this.downloadBtn.addEventListener('click', () => this.downloadImage());
-        
+
         // Theme and slideshow events
         this.darkModeToggle.addEventListener('click', () => this.toggleDarkMode());
         this.slideshowBtn.addEventListener('click', () => this.startSlideshow());
-        this.loadMoreBtn.addEventListener('click', () => this.loadMoreImages());
-        
+
+        // Auto scroll button
+        if (this.autoScrollBtn) {
+            this.autoScrollBtn.addEventListener('click', () => this.toggleAutoScroll());
+        }
+
         // Slideshow control events
         document.getElementById('slideshowPlayPauseBtn').addEventListener('click', () => this.toggleSlideshowPlayPause());
         document.getElementById('slideshowPrevBtn').addEventListener('click', () => this.navigateImage(-1));
@@ -110,23 +118,23 @@ class PhotoGallery {
                 this.restartSlideshowTimer();
             }
         });
-        
+
         // Keyboard events
         document.addEventListener('keydown', (e) => this.handleKeydown(e));
-        
+
         // Click outside lightbox to close
         this.lightbox.addEventListener('click', (e) => {
             if (e.target === this.lightbox) {
                 this.closeLightbox();
             }
         });
-        
+
         // Drag and drop support
         document.addEventListener('dragover', (e) => {
             e.preventDefault();
             e.stopPropagation();
         });
-        
+
         document.addEventListener('drop', (e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -137,7 +145,7 @@ class PhotoGallery {
     initializeDarkMode() {
         const savedTheme = localStorage.getItem('gallery-theme');
         const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        
+
         if (savedTheme === 'dark' || (!savedTheme && prefersDark)) {
             document.documentElement.classList.add('dark');
         }
@@ -206,7 +214,7 @@ class PhotoGallery {
 
     renderSelectedFolders() {
         const totalFiles = this.selectedFolders.reduce((sum, f) => sum + f.files.length, 0);
-        
+
         // Update button state
         if (this.selectedFolders.length > 0) {
             this.startGalleryBtn.disabled = false;
@@ -237,11 +245,11 @@ class PhotoGallery {
     }
 
     async handleDroppedFiles(files) {
-        const imageFiles = Array.from(files).filter(file => 
-            file.type.startsWith('image/') || 
+        const imageFiles = Array.from(files).filter(file =>
+            file.type.startsWith('image/') ||
             /\.(jpg|jpeg|png|gif|bmp|webp|svg)$/i.test(file.name)
         );
-        
+
         if (imageFiles.length > 0) {
             this.selectedFiles = imageFiles;
             this.startGalleryBtn.disabled = false;
@@ -251,15 +259,15 @@ class PhotoGallery {
 
     async startGallery() {
         if (!this.selectedFolders || this.selectedFolders.length === 0) return;
-        
+
         // Combine all files from selected folders
         const allFiles = this.selectedFolders.flatMap(folder => folder.files);
         if (allFiles.length === 0) return;
-        
+
         this.showLoading(true);
         this.welcomeScreen.style.display = 'none';
         this.galleryContainer.classList.remove('hidden');
-        
+
         try {
             await this.processImages(allFiles);
             this.organizeAlbums();
@@ -278,9 +286,9 @@ class PhotoGallery {
     async processImages(files) {
         const imageExtensions = /\.(jpg|jpeg|png|gif|bmp|webp|svg)$/i;
         const imageFiles = files.filter(file => imageExtensions.test(file.name));
-        
+
         this.images = [];
-        
+
         for (const file of imageFiles) {
             try {
                 const url = URL.createObjectURL(file);
@@ -290,7 +298,7 @@ class PhotoGallery {
                 console.warn('Failed to process image:', file.name, error);
             }
         }
-        
+
         // Sort images by name
         this.images.sort((a, b) => a.name.localeCompare(b.name));
         this.filteredImages = [...this.images];
@@ -302,7 +310,7 @@ class PhotoGallery {
             img.onload = () => {
                 const pathParts = file.webkitRelativePath ? file.webkitRelativePath.split('/') : [file.name];
                 const album = pathParts.length > 1 ? pathParts[pathParts.length - 2] : 'Main';
-                
+
                 resolve({
                     id: this.generateId(),
                     name: file.name,
@@ -325,14 +333,14 @@ class PhotoGallery {
     organizeAlbums() {
         this.albums.clear();
         this.albums.set('all', this.images);
-        
+
         this.images.forEach(image => {
             if (!this.albums.has(image.album)) {
                 this.albums.set(image.album, []);
             }
             this.albums.get(image.album).push(image);
         });
-        
+
         // Update album selector
         this.albumSelect.innerHTML = '<option value="all">All Photos</option>';
         for (const [albumName, images] of this.albums) {
@@ -343,7 +351,7 @@ class PhotoGallery {
                 this.albumSelect.appendChild(option);
             }
         }
-        
+
         this.albumSelector.classList.toggle('hidden', this.albums.size <= 2);
     }
 
@@ -357,31 +365,63 @@ class PhotoGallery {
         const startIndex = this.currentPage * this.itemsPerPage;
         const endIndex = Math.min(startIndex + this.itemsPerPage, this.filteredImages.length);
         const imagesToLoad = this.filteredImages.slice(startIndex, endIndex);
-        
+
         imagesToLoad.forEach((image, index) => {
             setTimeout(() => {
-                this.createGalleryItem(image, startIndex + index);
+                this.createGalleryItem(image);
             }, index * 50); // Staggered loading for animation effect
         });
-        
+
         this.currentPage++;
-        
-        // Update load more button
-        const hasMore = endIndex < this.filteredImages.length;
-        this.loadMoreContainer.classList.toggle('hidden', !hasMore);
-        
+
+        // Setup infinite scroll observer after first load
+        if (this.currentPage === 1) {
+            this.setupInfiniteScroll();
+        }
+
         // Show no results message if no images
         this.noResults.classList.toggle('hidden', this.filteredImages.length > 0);
     }
 
-    createGalleryItem(image, index) {
+    setupInfiniteScroll() {
+        // Disconnect existing observer
+        if (this.infiniteScrollObserver) {
+            this.infiniteScrollObserver.disconnect();
+        }
+
+        // Create sentinel element for infinite scroll
+        let sentinel = document.getElementById('infiniteScrollSentinel');
+        if (!sentinel) {
+            sentinel = document.createElement('div');
+            sentinel.id = 'infiniteScrollSentinel';
+            sentinel.style.height = '1px';
+            this.loadMoreContainer.parentNode.insertBefore(sentinel, this.loadMoreContainer);
+        }
+
+        // Hide load more button
+        this.loadMoreContainer.classList.add('hidden');
+
+        this.infiniteScrollObserver = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const hasMore = this.currentPage * this.itemsPerPage < this.filteredImages.length;
+                    if (hasMore) {
+                        this.loadMoreImages();
+                    }
+                }
+            });
+        }, { rootMargin: '200px' });
+
+        this.infiniteScrollObserver.observe(sentinel);
+    }
+
+    createGalleryItem(image) {
         const item = document.createElement('div');
         item.className = 'gallery-item';
-        item.dataset.index = index;
         item.dataset.imageId = image.id;
-        
+
         const isFavorited = this.favorites.has(image.id);
-        
+
         item.innerHTML = `
             <img data-src="${image.url}" alt="${image.name}" class="loading-skeleton">
             <div class="gallery-item-overlay">
@@ -396,14 +436,18 @@ class PhotoGallery {
                 </button>
             </div>
         `;
-        
-        // Add click event for lightbox
+
+        // Add click event for lightbox - use image.id to find correct index
         item.addEventListener('click', (e) => {
             if (!e.target.closest('.gallery-action-btn')) {
-                this.openLightbox(index);
+                const imageId = image.id;
+                const correctIndex = this.filteredImages.findIndex(img => img.id === imageId);
+                if (correctIndex !== -1) {
+                    this.openLightbox(correctIndex);
+                }
             }
         });
-        
+
         // Add favorite button event with error handling
         const favoriteBtn = item.querySelector('.favorite-btn');
         if (favoriteBtn) {
@@ -417,9 +461,9 @@ class PhotoGallery {
                 }
             });
         }
-        
+
         this.galleryGrid.appendChild(item);
-        
+
         // Observe for lazy loading
         const img = item.querySelector('img');
         if (img) {
@@ -439,18 +483,18 @@ class PhotoGallery {
         this.isLightboxOpen = false;
         this.lightbox.classList.add('hidden');
         document.body.style.overflow = '';
-        
+
         // Disable fullscreen slideshow mode
         const contentContainer = document.querySelector('.lightbox-content-container');
         if (contentContainer) {
             contentContainer.classList.remove('slideshow-mode');
         }
-        
+
         // Remove slideshow mode class from lightbox
         if (this.lightbox) {
             this.lightbox.classList.remove('slideshow-mode');
         }
-        
+
         if (this.isSlideshow) {
             this.stopSlideshow();
         }
@@ -458,17 +502,17 @@ class PhotoGallery {
 
     updateLightboxImage() {
         if (this.currentIndex < 0 || this.currentIndex >= this.filteredImages.length) return;
-        
+
         const image = this.filteredImages[this.currentIndex];
         this.lightboxImage.src = image.url;
         this.lightboxTitle.textContent = image.name;
         this.lightboxInfo.textContent = `${this.formatFileSize(image.size)} • ${image.width}×${image.height} • ${image.album}`;
-        
+
         // Update favorite button
         const isFavorited = this.favorites.has(image.id);
         this.favoriteBtn.innerHTML = `<i class="${isFavorited ? 'fas' : 'far'} fa-heart"></i>`;
         this.favoriteBtn.classList.toggle('text-red-500', isFavorited);
-        
+
         // Update slideshow active indicator
         document.querySelectorAll('.gallery-item').forEach((item, index) => {
             item.classList.toggle('slideshow-active', this.isSlideshow && index === this.currentIndex);
@@ -477,13 +521,13 @@ class PhotoGallery {
 
     navigateImage(direction) {
         this.currentIndex += direction;
-        
+
         if (this.currentIndex < 0) {
             this.currentIndex = this.filteredImages.length - 1;
         } else if (this.currentIndex >= this.filteredImages.length) {
             this.currentIndex = 0;
         }
-        
+
         this.updateLightboxImage();
     }
 
@@ -512,23 +556,23 @@ class PhotoGallery {
                 console.warn('toggleImageFavorite: Invalid imageId provided');
                 return;
             }
-            
+
             if (this.favorites.has(imageId)) {
                 this.favorites.delete(imageId);
             } else {
                 this.favorites.add(imageId);
             }
-            
+
             // Update localStorage
             localStorage.setItem('gallery-favorites', JSON.stringify([...this.favorites]));
-            
+
             // Update UI for gallery items
             document.querySelectorAll(`[data-image-id="${imageId}"]`).forEach(btn => {
                 const isFavorited = this.favorites.has(imageId);
                 btn.classList.toggle('favorited', isFavorited);
                 btn.innerHTML = `<i class="${isFavorited ? 'fas' : 'far'} fa-heart"></i>`;
             });
-            
+
             // Update lightbox favorite button if lightbox is open
             if (this.isLightboxOpen && this.favoriteBtn) {
                 const currentImage = this.filteredImages[this.currentIndex];
@@ -538,13 +582,13 @@ class PhotoGallery {
                     this.favoriteBtn.classList.toggle('text-red-500', isFavorited);
                 }
             }
-            
+
             // Update favorites toggle badge
             this.updateFavoritesToggle();
-            
+
             // Update photo count display
             this.updatePhotoCount();
-            
+
             // Refresh gallery if showing favorites only
             if (this.showFavoritesOnly) {
                 this.applyFilters();
@@ -569,26 +613,26 @@ class PhotoGallery {
 
     startSlideshow() {
         if (this.filteredImages.length === 0) return;
-        
+
         if (!this.isLightboxOpen) {
             this.openLightbox(0);
         }
-        
+
         this.isSlideshow = true;
         this.slideshowControls.classList.remove('hidden');
         this.slideshowBtn.innerHTML = '<i class="fas fa-stop"></i>';
-        
+
         // Enable fullscreen slideshow mode
         const contentContainer = document.querySelector('.lightbox-content-container');
         if (contentContainer) {
             contentContainer.classList.add('slideshow-mode');
         }
-        
+
         // Add slideshow mode class to lightbox
         this.lightbox.classList.add('slideshow-mode');
-        
+
         this.restartSlideshowTimer();
-        
+
         // Update play/pause button
         document.getElementById('slideshowPlayPauseBtn').innerHTML = '<i class="fas fa-pause"></i>';
     }
@@ -597,23 +641,23 @@ class PhotoGallery {
         this.isSlideshow = false;
         this.slideshowControls.classList.add('hidden');
         this.slideshowBtn.innerHTML = '<i class="fas fa-play"></i>';
-        
+
         // Disable fullscreen slideshow mode
         const contentContainer = document.querySelector('.lightbox-content-container');
         if (contentContainer) {
             contentContainer.classList.remove('slideshow-mode');
         }
-        
+
         // Remove slideshow mode class from lightbox
         if (this.lightbox) {
             this.lightbox.classList.remove('slideshow-mode');
         }
-        
+
         if (this.slideshowTimer) {
             clearInterval(this.slideshowTimer);
             this.slideshowTimer = null;
         }
-        
+
         // Remove active indicators
         document.querySelectorAll('.slideshow-active').forEach(item => {
             item.classList.remove('slideshow-active');
@@ -635,7 +679,7 @@ class PhotoGallery {
         if (this.slideshowTimer) {
             clearInterval(this.slideshowTimer);
         }
-        
+
         this.slideshowTimer = setInterval(() => {
             this.navigateImage(1);
         }, this.slideshowSpeed);
@@ -659,25 +703,25 @@ class PhotoGallery {
 
     applyFilters() {
         let filtered = this.images;
-        
+
         // Filter by album
         if (this.currentAlbum !== 'all') {
             filtered = filtered.filter(img => img.album === this.currentAlbum);
         }
-        
+
         // Filter by favorites
         if (this.showFavoritesOnly) {
             filtered = filtered.filter(img => this.favorites.has(img.id));
         }
-        
+
         // Filter by search query
         if (this.searchQuery) {
-            filtered = filtered.filter(img => 
+            filtered = filtered.filter(img =>
                 img.name.toLowerCase().includes(this.searchQuery) ||
                 img.album.toLowerCase().includes(this.searchQuery)
             );
         }
-        
+
         this.filteredImages = filtered;
         this.renderGallery();
         this.updatePhotoCount();
@@ -686,12 +730,12 @@ class PhotoGallery {
     updatePhotoCount() {
         const total = this.filteredImages.length;
         const favorites = this.favorites.size;
-        
+
         let text = `${total} photo${total !== 1 ? 's' : ''}`;
         if (favorites > 0) {
             text += ` • ${favorites} favorite${favorites !== 1 ? 's' : ''}`;
         }
-        
+
         this.photoCount.textContent = text;
     }
 
@@ -702,7 +746,7 @@ class PhotoGallery {
                 console.warn('favoritesToggle element not found');
                 return;
             }
-            
+
             const count = this.favorites.size;
             if (count > 0) {
                 if (!this.favoritesToggle.querySelector('.favorites-badge')) {
@@ -727,9 +771,48 @@ class PhotoGallery {
         localStorage.setItem('gallery-theme', isDark ? 'dark' : 'light');
     }
 
+    toggleAutoScroll() {
+        this.isAutoScrolling = !this.isAutoScrolling;
+
+        if (this.autoScrollBtn) {
+            this.autoScrollBtn.classList.toggle('auto-scrolling', this.isAutoScrolling);
+            this.autoScrollBtn.classList.toggle('text-pinterest-red', this.isAutoScrolling);
+        }
+
+        if (this.isAutoScrolling) {
+            this.autoScrollLoop();
+        }
+    }
+
+    autoScrollLoop() {
+        if (!this.isAutoScrolling) return;
+
+        window.scrollBy(0, this.autoScrollSpeed);
+
+        // Check if reached bottom
+        const scrollHeight = document.documentElement.scrollHeight;
+        const scrollTop = window.scrollY;
+        const clientHeight = window.innerHeight;
+
+        if (scrollTop + clientHeight >= scrollHeight - 10) {
+            // At bottom, check if more images to load
+            const hasMore = this.currentPage * this.itemsPerPage < this.filteredImages.length;
+            if (!hasMore) {
+                // No more images, stop auto scroll
+                this.isAutoScrolling = false;
+                if (this.autoScrollBtn) {
+                    this.autoScrollBtn.classList.remove('auto-scrolling', 'text-pinterest-red');
+                }
+                return;
+            }
+        }
+
+        requestAnimationFrame(() => this.autoScrollLoop());
+    }
+
     handleKeydown(event) {
         if (!this.isLightboxOpen) return;
-        
+
         switch (event.key) {
             case 'Escape':
                 this.closeLightbox();
@@ -774,7 +857,7 @@ class PhotoGallery {
         errorDiv.className = 'fixed top-4 right-4 bg-red-500 text-white px-4 py-2 rounded-lg shadow-lg z-50';
         errorDiv.textContent = message;
         document.body.appendChild(errorDiv);
-        
+
         // Auto-remove after 5 seconds
         setTimeout(() => {
             if (errorDiv.parentNode) {

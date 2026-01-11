@@ -1,5 +1,63 @@
 /* Custom Pinterest-style Gallery Styles */
 
+/* Minimal Header Styles */
+.header-minimal {
+    transition: all 0.2s ease;
+}
+
+.header-icon-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #5f6368;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    font-size: 14px;
+}
+
+.header-icon-btn:hover {
+    background: rgba(0, 0, 0, 0.06);
+    color: #1f1f1f;
+}
+
+.dark .header-icon-btn {
+    color: #9ca3af;
+}
+
+.dark .header-icon-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+}
+
+.header-icon-btn.text-pinterest-red,
+.header-icon-btn:active {
+    color: #E60023;
+}
+
+/* Favorites badge positioning for new header */
+.header-icon-btn .favorites-badge {
+    top: -4px;
+    right: -4px;
+    width: 18px;
+    height: 18px;
+    font-size: 10px;
+}
+
+/* Auto scroll button animation */
+.header-icon-btn.auto-scrolling {
+    animation: pulse-scroll 1s ease-in-out infinite;
+}
+
+@keyframes pulse-scroll {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+}
+
 /* Masonry Grid Layout */
 .masonry-grid {
     column-count: 1;
