@@ -14,7 +14,7 @@ class PhotoGallery {
         this.showFavoritesOnly = false;
         this.currentAlbum = 'all';
         this.albums = new Map();
-        this.selectedFolders = []; // Array of {name: string, files: File[]}
+        this.selectedFolders = []; // Array of {name: string, files: File[], selected: boolean}
         this.lazyLoadObserver = null;
         this.infiniteScrollObserver = null;
         this.isAutoScrolling = false;
@@ -222,30 +222,76 @@ class PhotoGallery {
     }
 
     renderSelectedFolders() {
-        const totalFiles = this.selectedFolders.reduce((sum, f) => sum + f.files.length, 0);
+        const selectedCount = this.selectedFolders.filter(f => f.selected !== false).length;
+        const totalSelectedFiles = this.selectedFolders
+            .filter(f => f.selected !== false)
+            .reduce((sum, f) => sum + f.files.length, 0);
 
         // Update button state
-        if (this.selectedFolders.length > 0) {
+        if (this.selectedFolders.length > 0 && selectedCount > 0) {
             this.startGalleryBtn.disabled = false;
-            this.startGalleryBtn.textContent = `Explore ${totalFiles} files from ${this.selectedFolders.length} folder${this.selectedFolders.length > 1 ? 's' : ''}`;
+            this.startGalleryBtn.textContent = `Explore ${totalSelectedFiles} files from ${selectedCount} folder${selectedCount > 1 ? 's' : ''}`;
         } else {
             this.startGalleryBtn.disabled = true;
-            this.startGalleryBtn.textContent = 'Start Exploring';
+            this.startGalleryBtn.textContent = this.selectedFolders.length > 0 ? 'Select at least one folder' : 'Start Exploring';
         }
 
-        // Render folder list
-        this.selectedFoldersList.innerHTML = this.selectedFolders.map((folder, index) => `
-            <div class="flex items-center justify-between bg-gray-100 dark:bg-gray-700 rounded-lg px-3 py-2">
-                <div class="flex items-center gap-2">
-                    <i class="fas fa-folder text-pinterest-red"></i>
-                    <span class="text-sm text-gray-700 dark:text-gray-300 font-medium">${folder.name}</span>
-                    <span class="text-xs text-gray-500 dark:text-gray-400">(${folder.files.length} files)</span>
+        // Render selection controls if multiple folders
+        let controlsHTML = '';
+        if (this.selectedFolders.length > 1) {
+            controlsHTML = `
+                <div class="folder-selection-controls">
+                    <button onclick="gallery.selectAllFolders()" class="folder-selection-btn">
+                        <i class="fas fa-check-double mr-1"></i>Select All
+                    </button>
+                    <button onclick="gallery.deselectAllFolders()" class="folder-selection-btn">
+                        <i class="fas fa-times mr-1"></i>Deselect All
+                    </button>
                 </div>
-                <button onclick="gallery.removeFolder(${index})" class="text-gray-400 hover:text-red-500 transition-colors p-1" title="Remove folder">
-                    <i class="fas fa-times"></i>
-                </button>
-            </div>
-        `).join('');
+            `;
+        }
+
+        // Render folder list with checkboxes
+        const foldersHTML = this.selectedFolders.map((folder, index) => {
+            const isSelected = folder.selected !== false;
+            return `
+                <div class="folder-item ${isSelected ? 'selected' : ''}" onclick="gallery.toggleFolderSelection(${index})">
+                    <div class="folder-info">
+                        <div class="folder-checkbox ${isSelected ? 'checked' : ''}">
+                            ${isSelected ? '<i class="fas fa-check"></i>' : ''}
+                        </div>
+                        <i class="fas fa-folder text-pinterest-red"></i>
+                        <span class="folder-name">${folder.name}</span>
+                        <span class="folder-count">(${folder.files.length} files)</span>
+                    </div>
+                    <div class="folder-actions">
+                        <button onclick="event.stopPropagation(); gallery.removeFolder(${index})" class="folder-remove-btn" title="Remove folder">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        this.selectedFoldersList.innerHTML = controlsHTML + foldersHTML;
+    }
+
+    toggleFolderSelection(index) {
+        if (index >= 0 && index < this.selectedFolders.length) {
+            const folder = this.selectedFolders[index];
+            folder.selected = folder.selected === false ? true : false;
+            this.renderSelectedFolders();
+        }
+    }
+
+    selectAllFolders() {
+        this.selectedFolders.forEach(folder => folder.selected = true);
+        this.renderSelectedFolders();
+    }
+
+    deselectAllFolders() {
+        this.selectedFolders.forEach(folder => folder.selected = false);
+        this.renderSelectedFolders();
     }
 
     removeFolder(index) {
@@ -269,8 +315,10 @@ class PhotoGallery {
     async startGallery() {
         if (!this.selectedFolders || this.selectedFolders.length === 0) return;
 
-        // Combine all files from selected folders
-        const allFiles = this.selectedFolders.flatMap(folder => folder.files);
+        // Combine files only from selected (checked) folders
+        const allFiles = this.selectedFolders
+            .filter(folder => folder.selected !== false)
+            .flatMap(folder => folder.files);
         if (allFiles.length === 0) return;
 
         this.showLoading(true);
@@ -446,6 +494,9 @@ class PhotoGallery {
                 </div>
             </div>
             <div class="gallery-item-actions">
+                <button class="gallery-action-btn slideshow-btn" data-slideshow-id="${image.id}" title="Start slideshow from here">
+                    <i class="fas fa-play"></i>
+                </button>
                 <button class="gallery-action-btn favorite-btn ${isFavorited ? 'favorited' : ''}" data-image-id="${image.id}" title="${isFavorited ? 'Remove from favorites' : 'Add to favorites'}">
                     <i class="${isFavorited ? 'fas' : 'far'} fa-heart"></i>
                 </button>
@@ -462,6 +513,20 @@ class PhotoGallery {
                 }
             }
         });
+
+        // Add slideshow button event
+        const slideshowBtn = item.querySelector('.slideshow-btn');
+        if (slideshowBtn) {
+            slideshowBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                const imageId = image.id;
+                const imageIndex = this.filteredImages.findIndex(img => img.id === imageId);
+                if (imageIndex !== -1) {
+                    this.startSlideshowFromIndex(imageIndex);
+                }
+            });
+        }
 
         // Add favorite button event with error handling
         const favoriteBtn = item.querySelector('.favorite-btn');
@@ -668,10 +733,20 @@ class PhotoGallery {
     }
 
     startSlideshow() {
+        this.startSlideshowFromIndex(0);
+    }
+
+    startSlideshowFromIndex(startIndex) {
         if (this.filteredImages.length === 0) return;
 
+        // Validate and clamp index
+        const validIndex = Math.max(0, Math.min(startIndex, this.filteredImages.length - 1));
+
         if (!this.isLightboxOpen) {
-            this.openLightbox(0);
+            this.openLightbox(validIndex);
+        } else {
+            this.currentIndex = validIndex;
+            this.updateLightboxImage();
         }
 
         this.isSlideshow = true;

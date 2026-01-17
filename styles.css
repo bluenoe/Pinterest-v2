@@ -232,9 +232,12 @@
     backdrop-filter: blur(10px);
 }
 
-/* Enhanced navigation buttons for slideshow mode */
-#lightbox.slideshow-mode #prevImage,
-#lightbox.slideshow-mode #nextImage {
+/* Fixed Lightbox Navigation Buttons - Always at same position */
+#lightbox #prevImage,
+#lightbox #nextImage {
+    position: fixed !important;
+    top: 50% !important;
+    transform: translateY(-50%) !important;
     background: rgba(0, 0, 0, 0.5);
     width: 50px;
     height: 50px;
@@ -242,13 +245,36 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: all 0.3s ease;
+    transition: background 0.3s ease, opacity 0.3s ease;
+    opacity: 0.7;
+    z-index: 60;
+}
+
+#lightbox #prevImage {
+    left: 20px !important;
+}
+
+#lightbox #nextImage {
+    right: 20px !important;
+}
+
+#lightbox #prevImage:hover,
+#lightbox #nextImage:hover {
+    background: rgba(0, 0, 0, 0.9);
+    opacity: 1;
+}
+
+/* Enhanced navigation buttons for slideshow mode */
+#lightbox.slideshow-mode #prevImage,
+#lightbox.slideshow-mode #nextImage {
+    background: rgba(0, 0, 0, 0.6);
+    width: 56px;
+    height: 56px;
 }
 
 #lightbox.slideshow-mode #prevImage:hover,
 #lightbox.slideshow-mode #nextImage:hover {
-    background: rgba(0, 0, 0, 0.8);
-    transform: scale(1.1);
+    background: rgba(0, 0, 0, 0.9);
 }
 
 /* Lightbox Content Container - Manages overall layout */
@@ -669,4 +695,164 @@ button:focus-visible {
         animation-iteration-count: 1 !important;
         transition-duration: 0.01ms !important;
     }
+}
+
+/* ===== Multi-Folder Selection Styles ===== */
+.folder-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: #f3f4f6;
+    border-radius: 0.75rem;
+    padding: 0.75rem 1rem;
+    transition: all 0.2s ease;
+    border: 2px solid transparent;
+    cursor: pointer;
+}
+
+.dark .folder-item {
+    background: #374151;
+}
+
+.folder-item:hover {
+    background: #e5e7eb;
+    transform: translateX(4px);
+}
+
+.dark .folder-item:hover {
+    background: #4b5563;
+}
+
+.folder-item.selected {
+    border-color: #E60023;
+    background: rgba(230, 0, 35, 0.08);
+}
+
+.dark .folder-item.selected {
+    background: rgba(230, 0, 35, 0.15);
+}
+
+.folder-checkbox {
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    border: 2px solid #d1d5db;
+    background: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.dark .folder-checkbox {
+    background: #1f2937;
+    border-color: #6b7280;
+}
+
+.folder-checkbox.checked {
+    background: #E60023;
+    border-color: #E60023;
+}
+
+.folder-checkbox.checked i {
+    color: white;
+    font-size: 12px;
+}
+
+.folder-info {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex: 1;
+    min-width: 0;
+}
+
+.folder-name {
+    font-weight: 500;
+    color: #374151;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dark .folder-name {
+    color: #e5e7eb;
+}
+
+.folder-count {
+    font-size: 0.75rem;
+    color: #9ca3af;
+    white-space: nowrap;
+}
+
+.folder-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.folder-remove-btn {
+    padding: 0.25rem;
+    color: #9ca3af;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+}
+
+.folder-remove-btn:hover {
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.1);
+}
+
+/* Select All / Deselect All buttons */
+.folder-selection-controls {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+
+.folder-selection-btn {
+    padding: 0.375rem 0.75rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    border-radius: 9999px;
+    border: 1px solid #e5e7eb;
+    background: white;
+    color: #6b7280;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.dark .folder-selection-btn {
+    background: #374151;
+    border-color: #4b5563;
+    color: #9ca3af;
+}
+
+.folder-selection-btn:hover {
+    background: #f3f4f6;
+    color: #374151;
+}
+
+.dark .folder-selection-btn:hover {
+    background: #4b5563;
+    color: #e5e7eb;
+}
+
+/* ===== Slideshow Button on Gallery Item ===== */
+.gallery-action-btn.slideshow-btn {
+    background: rgba(255, 255, 255, 0.9);
+}
+
+.gallery-action-btn.slideshow-btn:hover {
+    background: #E60023;
+    color: white;
+}
+
+.gallery-action-btn.slideshow-btn i {
+    font-size: 0.75rem;
 }
