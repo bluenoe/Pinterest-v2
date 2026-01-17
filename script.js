@@ -9,7 +9,7 @@ class PhotoGallery {
         this.itemsPerPage = 50;
         this.isLightboxOpen = false;
         this.isSlideshow = false;
-        this.slideshowInterval = null;
+        this.slideshowTimer = null; // Timer ID for slideshow
         this.slideshowSpeed = 3000;
         this.showFavoritesOnly = false;
         this.currentAlbum = 'all';
@@ -19,11 +19,14 @@ class PhotoGallery {
         this.infiniteScrollObserver = null;
         this.isAutoScrolling = false;
         this.autoScrollSpeed = 1; // pixels per frame
+        this.imageUrls = new Set(); // Track Object URLs for cleanup
+        this.idCounter = 0; // Counter for unique ID generation
 
         this.initializeElements();
         this.initializeEventListeners();
         this.initializeDarkMode();
         this.initializeLazyLoading();
+        this.initializeTouchSwipe();
 
         // Initialize favorites display on startup
         this.updateFavoritesToggle();
@@ -69,7 +72,7 @@ class PhotoGallery {
 
         // Slideshow elements
         this.slideshowControls = document.getElementById('slideshowControls');
-        this.slideshowInterval = document.getElementById('slideshowInterval');
+        this.slideshowIntervalSelect = document.getElementById('slideshowInterval');
         this.autoScrollBtn = document.getElementById('autoScrollBtn');
     }
 
@@ -112,7 +115,7 @@ class PhotoGallery {
         document.getElementById('slideshowPrevBtn').addEventListener('click', () => this.navigateImage(-1));
         document.getElementById('slideshowNextBtn').addEventListener('click', () => this.navigateImage(1));
         document.getElementById('slideshowStopBtn').addEventListener('click', () => this.stopSlideshow());
-        this.slideshowInterval.addEventListener('change', (e) => {
+        this.slideshowIntervalSelect.addEventListener('change', (e) => {
             this.slideshowSpeed = parseInt(e.target.value);
             if (this.isSlideshow) {
                 this.restartSlideshowTimer();
@@ -157,14 +160,20 @@ class PhotoGallery {
                 if (entry.isIntersecting) {
                     const img = entry.target;
                     if (img.dataset.src) {
-                        img.src = img.dataset.src;
-                        img.removeAttribute('data-src');
-                        img.classList.remove('loading-skeleton');
+                        // Create a temp image to preload
+                        const tempImg = new Image();
+                        tempImg.onload = () => {
+                            img.src = img.dataset.src;
+                            img.removeAttribute('data-src');
+                            img.classList.remove('loading-skeleton');
+                            img.classList.add('lazy-loaded');
+                        };
+                        tempImg.src = img.dataset.src;
                         this.lazyLoadObserver.unobserve(img);
                     }
                 }
             });
-        }, { rootMargin: '50px' });
+        }, { rootMargin: '200px' }); // Preload earlier for smoother experience
     }
 
     async handleFolderSelection(event) {
@@ -292,6 +301,7 @@ class PhotoGallery {
         for (const file of imageFiles) {
             try {
                 const url = URL.createObjectURL(file);
+                this.imageUrls.add(url); // Track URL for cleanup
                 const image = await this.loadImageMetadata(file, url);
                 this.images.push(image);
             } catch (error) {
@@ -422,8 +432,13 @@ class PhotoGallery {
 
         const isFavorited = this.favorites.has(image.id);
 
+        // Calculate aspect ratio for placeholder
+        const aspectRatio = (image.height / image.width * 100).toFixed(2);
+
         item.innerHTML = `
-            <img data-src="${image.url}" alt="${image.name}" class="loading-skeleton">
+            <div class="image-wrapper" style="padding-bottom: ${aspectRatio}%;">
+                <img data-src="${image.url}" alt="${image.name}" class="loading-skeleton lazy-image">
+            </div>
             <div class="gallery-item-overlay">
                 <div class="gallery-item-info">
                     <div class="gallery-item-title">${image.name}</div>
@@ -504,7 +519,24 @@ class PhotoGallery {
         if (this.currentIndex < 0 || this.currentIndex >= this.filteredImages.length) return;
 
         const image = this.filteredImages[this.currentIndex];
-        this.lightboxImage.src = image.url;
+
+        // Show loading state
+        this.lightboxImage.classList.add('loading');
+        this.lightboxImage.style.opacity = '0.5';
+
+        // Create a new image to preload
+        const preloadImg = new Image();
+        preloadImg.onload = () => {
+            this.lightboxImage.src = image.url;
+            this.lightboxImage.classList.remove('loading');
+            this.lightboxImage.style.opacity = '1';
+        };
+        preloadImg.onerror = () => {
+            this.lightboxImage.classList.remove('loading');
+            this.lightboxImage.style.opacity = '1';
+        };
+        preloadImg.src = image.url;
+
         this.lightboxTitle.textContent = image.name;
         this.lightboxInfo.textContent = `${this.formatFileSize(image.size)} • ${image.width}×${image.height} • ${image.album}`;
 
@@ -517,6 +549,30 @@ class PhotoGallery {
         document.querySelectorAll('.gallery-item').forEach((item, index) => {
             item.classList.toggle('slideshow-active', this.isSlideshow && index === this.currentIndex);
         });
+    }
+
+    // Touch swipe support for mobile
+    initializeTouchSwipe() {
+        let touchStartX = 0;
+        let touchEndX = 0;
+        const minSwipeDistance = 50;
+
+        this.lightbox.addEventListener('touchstart', (e) => {
+            touchStartX = e.changedTouches[0].screenX;
+        }, { passive: true });
+
+        this.lightbox.addEventListener('touchend', (e) => {
+            touchEndX = e.changedTouches[0].screenX;
+            const swipeDistance = touchEndX - touchStartX;
+
+            if (Math.abs(swipeDistance) > minSwipeDistance) {
+                if (swipeDistance > 0) {
+                    this.navigateImage(-1); // Swipe right = previous
+                } else {
+                    this.navigateImage(1); // Swipe left = next
+                }
+            }
+        }, { passive: true });
     }
 
     navigateImage(direction) {
@@ -875,7 +931,15 @@ class PhotoGallery {
     }
 
     generateId() {
-        return Math.random().toString(36).substr(2, 9);
+        return `img_${Date.now()}_${this.idCounter++}`;
+    }
+
+    // Cleanup Object URLs to prevent memory leaks
+    cleanup() {
+        this.imageUrls.forEach(url => URL.revokeObjectURL(url));
+        this.imageUrls.clear();
+        if (this.lazyLoadObserver) this.lazyLoadObserver.disconnect();
+        if (this.infiniteScrollObserver) this.infiniteScrollObserver.disconnect();
     }
 }
 
@@ -887,8 +951,15 @@ document.addEventListener('DOMContentLoaded', () => {
 // Service Worker registration for offline support (optional)
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js').catch(() => {
+        navigator.serviceWorker.register('./sw.js').catch(() => {
             // Service worker registration failed, but app still works
         });
     });
 }
+
+// Cleanup on page unload to prevent memory leaks
+window.addEventListener('beforeunload', () => {
+    if (window.gallery) {
+        window.gallery.cleanup();
+    }
+});

@@ -420,11 +420,6 @@
     }
 }
 
-/* Legacy lightbox image styles (remove old conflicting styles) */
-#lightboxImage {
-    /* Styles moved to .lightbox-image class above */
-}
-
 /* Smooth transitions for theme changes */
 * {
     transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
@@ -436,15 +431,63 @@
     50% { opacity: 0.5; }
 }
 
+/* Image wrapper for aspect ratio placeholder */
+.image-wrapper {
+    position: relative;
+    width: 100%;
+    background: linear-gradient(135deg, #f5f5f5 0%, #e8e8e8 50%, #f5f5f5 100%);
+    background-size: 400% 400%;
+    animation: gradientShift 2s ease infinite;
+    overflow: hidden;
+}
+
+.dark .image-wrapper {
+    background: linear-gradient(135deg, #1f2937 0%, #374151 50%, #1f2937 100%);
+    background-size: 400% 400%;
+}
+
+@keyframes gradientShift {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+
+/* Lazy image inside wrapper */
+.lazy-image {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0;
+    transition: opacity 0.4s ease-out;
+}
+
+.lazy-image.lazy-loaded {
+    opacity: 1;
+}
+
 .loading-skeleton {
-    background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+    background: linear-gradient(90deg, 
+        rgba(255,255,255,0) 0%, 
+        rgba(255,255,255,0.4) 50%, 
+        rgba(255,255,255,0) 100%);
     background-size: 200% 100%;
-    animation: loading 1.5s infinite;
+    animation: shimmer 1.5s infinite;
 }
 
 .dark .loading-skeleton {
-    background: linear-gradient(90deg, #374151 25%, #4b5563 50%, #374151 75%);
+    background: linear-gradient(90deg, 
+        rgba(255,255,255,0) 0%, 
+        rgba(255,255,255,0.1) 50%, 
+        rgba(255,255,255,0) 100%);
     background-size: 200% 100%;
+}
+
+@keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
 }
 
 @keyframes loading {
@@ -573,5 +616,57 @@
     .gallery-item {
         break-inside: avoid;
         page-break-inside: avoid;
+    }
+}
+
+/* Lightbox loading state */
+.lightbox-image {
+    transition: opacity 0.3s ease;
+}
+
+.lightbox-image.loading {
+    opacity: 0.5;
+}
+
+/* Touch feedback for mobile */
+@media (hover: none) {
+    .gallery-item:active {
+        transform: scale(0.98);
+    }
+    
+    .gallery-action-btn:active {
+        transform: scale(0.9);
+    }
+}
+
+/* Accessibility improvements */
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* Focus visible styles for keyboard navigation */
+.gallery-action-btn:focus-visible,
+.header-icon-btn:focus-visible,
+button:focus-visible {
+    outline: 2px solid #E60023;
+    outline-offset: 2px;
+}
+
+/* Reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
     }
 }
