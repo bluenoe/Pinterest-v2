@@ -7,7 +7,7 @@
   "scripts": {
     "build:css": "tailwindcss -i ./src/input.css -o ./dist/styles.css --minify",
     "watch:css": "tailwindcss -i ./src/input.css -o ./dist/styles.css --watch",
-    "check": "node --check modules/StorageService.js && node --check modules/ImageProcessor.js && node --check modules/LightboxController.js && node --check modules/GalleryRenderer.js && node --check script.js"
+    "check": "node --check modules/StorageService.js && node --check modules/ImageProcessor.js && node --check modules/LightboxController.js && node --check modules/GalleryRenderer.js && node --check modules/VirtualGrid.js && node --check script.js"
   },
   "repository": {
     "type": "git",
