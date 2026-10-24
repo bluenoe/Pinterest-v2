@@ -1,4 +1,34 @@
 // Pinterest-style Photo Gallery Application
+
+// =============================================================================
+// FIX 1 (XSS): HTML-escape helper – sanitises all user-controlled strings
+// before they are injected into innerHTML or HTML attribute values.
+// =============================================================================
+function escapeHtml(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+// =============================================================================
+// FIX 3 (Deterministic IDs): djb2-based hash over stable file fingerprint
+// (name + size + lastModified + path) so the same physical file always maps
+// to the same ID across sessions, making localStorage favorites persistent.
+// =============================================================================
+function generateDeterministicId(file) {
+    const raw = `${file.name}|${file.size}|${file.lastModified}|${file.webkitRelativePath || ''}`;
+    let hash = 5381;
+    for (let i = 0; i < raw.length; i++) {
+        hash = ((hash << 5) + hash) ^ raw.charCodeAt(i);
+        hash = hash & hash; // coerce to 32-bit integer
+    }
+    return 'img_' + (hash >>> 0).toString(16); // unsigned hex
+}
+
 class PhotoGallery {
     constructor() {
         this.images = [];
@@ -19,8 +49,10 @@ class PhotoGallery {
         this.infiniteScrollObserver = null;
         this.isAutoScrolling = false;
         this.autoScrollSpeed = 1; // pixels per frame
-        this.imageUrls = new Set(); // Track Object URLs for cleanup
-        this.idCounter = 0; // Counter for unique ID generation
+
+        // FIX 2 (Memory): Map<imageId, blobUrl> for controlled, on-demand lifecycle.
+        // Blob URLs are created only when items enter the viewport or lightbox.
+        this.activeBlobUrls = new Map();
 
         this.initializeElements();
         this.initializeEventListeners();
@@ -31,7 +63,6 @@ class PhotoGallery {
         // Initialize favorites display on startup
         this.updateFavoritesToggle();
 
-        // Debug: Log favorites loaded from storage
         console.log('Favorites loaded from storage:', this.favorites.size, 'items');
     }
 
@@ -138,10 +169,13 @@ class PhotoGallery {
             e.stopPropagation();
         });
 
+        // FIX 4 (Drag & Drop): pass the full DataTransfer object so we can
+        // access items (with webkitGetAsEntry for directory traversal) as well
+        // as the fallback FileList.
         document.addEventListener('drop', (e) => {
             e.preventDefault();
             e.stopPropagation();
-            this.handleDroppedFiles(e.dataTransfer.files);
+            this.handleDroppedFiles(e.dataTransfer);
         });
     }
 
@@ -154,26 +188,60 @@ class PhotoGallery {
         }
     }
 
+    // FIX 2 (Memory): Blob URLs are created on demand when an item scrolls
+    // into the viewport, not upfront during gallery construction.
     initializeLazyLoading() {
         this.lazyLoadObserver = new IntersectionObserver((entries) => {
             entries.forEach(entry => {
                 if (entry.isIntersecting) {
                     const img = entry.target;
-                    if (img.dataset.src) {
-                        // Create a temp image to preload
-                        const tempImg = new Image();
-                        tempImg.onload = () => {
-                            img.src = img.dataset.src;
-                            img.removeAttribute('data-src');
-                            img.classList.remove('loading-skeleton');
-                            img.classList.add('lazy-loaded');
-                        };
-                        tempImg.src = img.dataset.src;
-                        this.lazyLoadObserver.unobserve(img);
-                    }
+                    const imageId = img.dataset.fileId;
+                    if (!imageId) return;
+
+                    // Allocate (or reuse cached) blob URL on demand
+                    const blobUrl = this.getOrCreateBlobUrl(imageId);
+                    if (!blobUrl) return;
+
+                    const tempImg = new Image();
+                    tempImg.onload = () => {
+                        img.src = blobUrl;
+                        img.removeAttribute('data-file-id');
+                        img.classList.remove('loading-skeleton');
+                        img.classList.add('lazy-loaded');
+                    };
+                    tempImg.src = blobUrl;
+                    this.lazyLoadObserver.unobserve(img);
                 }
             });
         }, { rootMargin: '200px' }); // Preload earlier for smoother experience
+    }
+
+    // FIX 2: Central blob-URL factory. Creates a URL once per image per session
+    // and caches it in activeBlobUrls.
+    getOrCreateBlobUrl(imageId) {
+        if (this.activeBlobUrls.has(imageId)) {
+            return this.activeBlobUrls.get(imageId);
+        }
+        const image = this.images.find(img => img.id === imageId);
+        if (!image || !image.file) return null;
+        const url = URL.createObjectURL(image.file);
+        this.activeBlobUrls.set(imageId, url);
+        return url;
+    }
+
+    // Revoke one cached blob URL
+    revokeBlobUrl(imageId) {
+        const url = this.activeBlobUrls.get(imageId);
+        if (url) {
+            URL.revokeObjectURL(url);
+            this.activeBlobUrls.delete(imageId);
+        }
+    }
+
+    // Revoke all active blob URLs (gallery reset or page unload)
+    revokeAllBlobUrls() {
+        this.activeBlobUrls.forEach(url => URL.revokeObjectURL(url));
+        this.activeBlobUrls.clear();
     }
 
     async handleFolderSelection(event) {
@@ -203,7 +271,7 @@ class PhotoGallery {
 
         // Check if folder already added
         if (this.selectedFolders.some(f => f.name === folderName)) {
-            this.showError(`Folder "${folderName}" đã được thêm rồi!`);
+            this.showError(`Folder "${folderName}" has already been added.`);
             return;
         }
 
@@ -236,7 +304,7 @@ class PhotoGallery {
             this.startGalleryBtn.textContent = this.selectedFolders.length > 0 ? 'Select at least one folder' : 'Start Exploring';
         }
 
-        // Render selection controls if multiple folders
+        // Static controls HTML (no user data – safe to use innerHTML)
         let controlsHTML = '';
         if (this.selectedFolders.length > 1) {
             controlsHTML = `
@@ -251,29 +319,44 @@ class PhotoGallery {
             `;
         }
 
-        // Render folder list with checkboxes
-        const foldersHTML = this.selectedFolders.map((folder, index) => {
+        // FIX 1 (XSS): Build folder items via DOM construction so folder.name
+        // is always set through textContent, never interpolated into innerHTML.
+        this.selectedFoldersList.innerHTML = controlsHTML;
+
+        this.selectedFolders.forEach((folder, index) => {
             const isSelected = folder.selected !== false;
-            return `
-                <div class="folder-item ${isSelected ? 'selected' : ''}" onclick="gallery.toggleFolderSelection(${index})">
-                    <div class="folder-info">
-                        <div class="folder-checkbox ${isSelected ? 'checked' : ''}">
-                            ${isSelected ? '<i class="fas fa-check"></i>' : ''}
-                        </div>
-                        <i class="fas fa-folder text-pinterest-red"></i>
-                        <span class="folder-name">${folder.name}</span>
-                        <span class="folder-count">(${folder.files.length} files)</span>
+
+            const folderItem = document.createElement('div');
+            folderItem.className = `folder-item ${isSelected ? 'selected' : ''}`;
+            folderItem.addEventListener('click', () => this.toggleFolderSelection(index));
+
+            // Static structural HTML – no user data injected here
+            folderItem.innerHTML = `
+                <div class="folder-info">
+                    <div class="folder-checkbox ${isSelected ? 'checked' : ''}">
+                        ${isSelected ? '<i class="fas fa-check"></i>' : ''}
                     </div>
-                    <div class="folder-actions">
-                        <button onclick="event.stopPropagation(); gallery.removeFolder(${index})" class="folder-remove-btn" title="Remove folder">
-                            <i class="fas fa-times"></i>
-                        </button>
-                    </div>
+                    <i class="fas fa-folder text-pinterest-red"></i>
+                    <span class="folder-name"></span>
+                    <span class="folder-count"></span>
+                </div>
+                <div class="folder-actions">
+                    <button class="folder-remove-btn" title="Remove folder">
+                        <i class="fas fa-times"></i>
+                    </button>
                 </div>
             `;
-        }).join('');
 
-        this.selectedFoldersList.innerHTML = controlsHTML + foldersHTML;
+            // Safe assignment of user-controlled text
+            folderItem.querySelector('.folder-name').textContent = folder.name;
+            folderItem.querySelector('.folder-count').textContent = `(${folder.files.length} files)`;
+            folderItem.querySelector('.folder-remove-btn').addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.removeFolder(index);
+            });
+
+            this.selectedFoldersList.appendChild(folderItem);
+        });
     }
 
     toggleFolderSelection(index) {
@@ -299,17 +382,86 @@ class PhotoGallery {
         this.renderSelectedFolders();
     }
 
-    async handleDroppedFiles(files) {
-        const imageFiles = Array.from(files).filter(file =>
-            file.type.startsWith('image/') ||
-            /\.(jpg|jpeg|png|gif|bmp|webp|svg)$/i.test(file.name)
+    // FIX 4 (Drag & Drop): Accept the full DataTransfer object so we can use
+    // webkitGetAsEntry() for recursive directory traversal. Dropped files are
+    // normalised into the same selectedFolders model that startGallery() reads,
+    // so both the directory picker and drag-and-drop share the same pipeline.
+    async handleDroppedFiles(dataTransfer) {
+        const imageExtensions = /\.(jpg|jpeg|png|gif|bmp|webp|svg)$/i;
+        const allFiles = [];
+
+        if (dataTransfer.items && dataTransfer.items.length > 0) {
+            const entries = [];
+            for (const item of dataTransfer.items) {
+                if (item.kind === 'file') {
+                    const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
+                    if (entry) {
+                        entries.push(entry);
+                    } else {
+                        const file = item.getAsFile();
+                        if (file) allFiles.push(file);
+                    }
+                }
+            }
+            for (const entry of entries) {
+                await this.collectFilesFromEntry(entry, allFiles);
+            }
+        } else {
+            // Fallback for older browsers
+            for (const file of dataTransfer.files) allFiles.push(file);
+        }
+
+        const imageFiles = allFiles.filter(f =>
+            f.type.startsWith('image/') || imageExtensions.test(f.name)
         );
 
-        if (imageFiles.length > 0) {
-            this.selectedFiles = imageFiles;
-            this.startGalleryBtn.disabled = false;
-            this.startGalleryBtn.textContent = `Explore ${imageFiles.length} files`;
+        if (imageFiles.length === 0) {
+            this.showError('No supported image files found in the dropped items.');
+            return;
         }
+
+        // Derive a folder name from the first file's path (best-effort)
+        const firstPath = imageFiles[0].webkitRelativePath || imageFiles[0].name;
+        const parts = firstPath.split('/');
+        const baseName = parts.length > 1 ? parts[0] : 'Dropped Files';
+        const folderName = this.selectedFolders.some(f => f.name === baseName)
+            ? `${baseName} (${Date.now()})`
+            : baseName;
+
+        // Normalise into the shared selectedFolders model
+        this.selectedFolders.push({
+            name: folderName,
+            files: imageFiles,
+            selected: true
+        });
+
+        this.renderSelectedFolders();
+    }
+
+    // Recursively walk a FileSystemEntry tree and collect all File objects
+    collectFilesFromEntry(entry, result) {
+        return new Promise((resolve) => {
+            if (entry.isFile) {
+                entry.file(file => { result.push(file); resolve(); }, () => resolve());
+            } else if (entry.isDirectory) {
+                const reader = entry.createReader();
+                const readBatch = () => {
+                    reader.readEntries(async (entries) => {
+                        if (entries.length === 0) {
+                            resolve();
+                        } else {
+                            for (const e of entries) {
+                                await this.collectFilesFromEntry(e, result);
+                            }
+                            readBatch(); // readEntries may return partial batches
+                        }
+                    }, () => resolve());
+                };
+                readBatch();
+            } else {
+                resolve();
+            }
+        });
     }
 
     async startGallery() {
@@ -340,17 +492,19 @@ class PhotoGallery {
         }
     }
 
+    // FIX 2 (Memory) + FIX 3 (IDs): No eager blob URL allocation.
+    // Stores the raw File reference; blob URLs are created on demand.
     async processImages(files) {
         const imageExtensions = /\.(jpg|jpeg|png|gif|bmp|webp|svg)$/i;
         const imageFiles = files.filter(file => imageExtensions.test(file.name));
 
+        // Revoke any URLs from a previous gallery load before rebuilding
+        this.revokeAllBlobUrls();
         this.images = [];
 
         for (const file of imageFiles) {
             try {
-                const url = URL.createObjectURL(file);
-                this.imageUrls.add(url); // Track URL for cleanup
-                const image = await this.loadImageMetadata(file, url);
+                const image = await this.loadImageMetadata(file);
                 this.images.push(image);
             } catch (error) {
                 console.warn('Failed to process image:', file.name, error);
@@ -362,29 +516,36 @@ class PhotoGallery {
         this.filteredImages = [...this.images];
     }
 
-    async loadImageMetadata(file, url) {
+    // FIX 2 + FIX 3: Short-lived temp URL for dimension detection; immediately
+    // revoked after metadata is captured. ID is now deterministic.
+    async loadImageMetadata(file) {
         return new Promise((resolve, reject) => {
+            const tempUrl = URL.createObjectURL(file);
             const img = new Image();
             img.onload = () => {
+                URL.revokeObjectURL(tempUrl); // Release immediately after decode
+
                 const pathParts = file.webkitRelativePath ? file.webkitRelativePath.split('/') : [file.name];
                 const album = pathParts.length > 1 ? pathParts[pathParts.length - 2] : 'Main';
 
                 resolve({
-                    id: this.generateId(),
+                    id: generateDeterministicId(file), // FIX 3: stable, session-persistent ID
                     name: file.name,
-                    file: file,
-                    url: url,
+                    file: file,       // Raw File reference; blob URL allocated on demand
                     path: file.webkitRelativePath || file.name,
                     album: album,
-                    width: img.width,
-                    height: img.height,
+                    width: img.naturalWidth  || img.width,
+                    height: img.naturalHeight || img.height,
                     size: file.size,
                     lastModified: file.lastModified,
                     type: file.type
                 });
             };
-            img.onerror = reject;
-            img.src = url;
+            img.onerror = () => {
+                URL.revokeObjectURL(tempUrl);
+                reject(new Error(`Failed to load image: ${file.name}`));
+            };
+            img.src = tempUrl;
         });
     }
 
@@ -473,62 +634,69 @@ class PhotoGallery {
         this.infiniteScrollObserver.observe(sentinel);
     }
 
+    // FIX 1 (XSS) + FIX 2 (Memory):
+    //  – User text (name, meta) set via textContent, never interpolated into innerHTML.
+    //  – <img> carries data-file-id instead of a pre-allocated blob URL; the
+    //    IntersectionObserver calls getOrCreateBlobUrl() when item enters viewport.
     createGalleryItem(image) {
+        const isFavorited = this.favorites.has(image.id);
+        const aspectRatio = (image.height / image.width * 100).toFixed(2);
+
         const item = document.createElement('div');
         item.className = 'gallery-item';
         item.dataset.imageId = image.id;
 
-        const isFavorited = this.favorites.has(image.id);
-
-        // Calculate aspect ratio for placeholder
-        const aspectRatio = (image.height / image.width * 100).toFixed(2);
-
+        // Static structural HTML – image.id is a hex hash (safe), no user text here
         item.innerHTML = `
             <div class="image-wrapper" style="padding-bottom: ${aspectRatio}%;">
-                <img data-src="${image.url}" alt="${image.name}" class="loading-skeleton lazy-image">
+                <img data-file-id="${escapeHtml(image.id)}"
+                     alt=""
+                     class="loading-skeleton lazy-image">
             </div>
             <div class="gallery-item-overlay">
                 <div class="gallery-item-info">
-                    <div class="gallery-item-title">${image.name}</div>
-                    <div class="gallery-item-meta">${this.formatFileSize(image.size)} • ${image.width}×${image.height}</div>
+                    <div class="gallery-item-title"></div>
+                    <div class="gallery-item-meta"></div>
                 </div>
             </div>
             <div class="gallery-item-actions">
-                <button class="gallery-action-btn slideshow-btn" data-slideshow-id="${image.id}" title="Start slideshow from here">
+                <button class="gallery-action-btn slideshow-btn" title="Start slideshow from here">
                     <i class="fas fa-play"></i>
                 </button>
-                <button class="gallery-action-btn favorite-btn ${isFavorited ? 'favorited' : ''}" data-image-id="${image.id}" title="${isFavorited ? 'Remove from favorites' : 'Add to favorites'}">
+                <button class="gallery-action-btn favorite-btn ${isFavorited ? 'favorited' : ''}"
+                        data-image-id="${escapeHtml(image.id)}"
+                        title="${isFavorited ? 'Remove from favorites' : 'Add to favorites'}">
                     <i class="${isFavorited ? 'fas' : 'far'} fa-heart"></i>
                 </button>
             </div>
         `;
 
-        // Add click event for lightbox - use image.id to find correct index
+        // FIX 1: Set user-controlled text safely via textContent
+        item.querySelector('.gallery-item-title').textContent = image.name;
+        item.querySelector('.gallery-item-meta').textContent =
+            `${this.formatFileSize(image.size)} • ${image.width}×${image.height}`;
+        item.querySelector('img').alt = image.name;
+
+        // Click → open lightbox
         item.addEventListener('click', (e) => {
             if (!e.target.closest('.gallery-action-btn')) {
-                const imageId = image.id;
-                const correctIndex = this.filteredImages.findIndex(img => img.id === imageId);
-                if (correctIndex !== -1) {
-                    this.openLightbox(correctIndex);
-                }
+                const correctIndex = this.filteredImages.findIndex(img => img.id === image.id);
+                if (correctIndex !== -1) this.openLightbox(correctIndex);
             }
         });
 
-        // Add slideshow button event
+        // Slideshow button
         const slideshowBtn = item.querySelector('.slideshow-btn');
         if (slideshowBtn) {
             slideshowBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 e.preventDefault();
-                const imageId = image.id;
-                const imageIndex = this.filteredImages.findIndex(img => img.id === imageId);
-                if (imageIndex !== -1) {
-                    this.startSlideshowFromIndex(imageIndex);
-                }
+                const imageIndex = this.filteredImages.findIndex(img => img.id === image.id);
+                if (imageIndex !== -1) this.startSlideshowFromIndex(imageIndex);
             });
         }
 
-        // Add favorite button event with error handling
+        // Favorite button
         const favoriteBtn = item.querySelector('.favorite-btn');
         if (favoriteBtn) {
             favoriteBtn.addEventListener('click', (e) => {
@@ -544,11 +712,9 @@ class PhotoGallery {
 
         this.galleryGrid.appendChild(item);
 
-        // Observe for lazy loading
+        // FIX 2: Register for lazy-load; blob URL allocated only on viewport entry
         const img = item.querySelector('img');
-        if (img) {
-            this.lazyLoadObserver.observe(img);
-        }
+        if (img) this.lazyLoadObserver.observe(img);
     }
 
     openLightbox(index) {
@@ -580,6 +746,8 @@ class PhotoGallery {
         }
     }
 
+    // FIX 1 (XSS): title and info set via textContent.
+    // FIX 2 (Memory): blob URL resolved on demand via getOrCreateBlobUrl().
     updateLightboxImage() {
         if (this.currentIndex < 0 || this.currentIndex >= this.filteredImages.length) return;
 
@@ -589,10 +757,12 @@ class PhotoGallery {
         this.lightboxImage.classList.add('loading');
         this.lightboxImage.style.opacity = '0.5';
 
-        // Create a new image to preload
+        // FIX 2: Allocate (or reuse cached) blob URL on demand
+        const blobUrl = this.getOrCreateBlobUrl(image.id);
+
         const preloadImg = new Image();
         preloadImg.onload = () => {
-            this.lightboxImage.src = image.url;
+            this.lightboxImage.src = blobUrl;
             this.lightboxImage.classList.remove('loading');
             this.lightboxImage.style.opacity = '1';
         };
@@ -600,12 +770,14 @@ class PhotoGallery {
             this.lightboxImage.classList.remove('loading');
             this.lightboxImage.style.opacity = '1';
         };
-        preloadImg.src = image.url;
+        preloadImg.src = blobUrl;
 
+        // FIX 1 (XSS): user-supplied strings via textContent only
         this.lightboxTitle.textContent = image.name;
-        this.lightboxInfo.textContent = `${this.formatFileSize(image.size)} • ${image.width}×${image.height} • ${image.album}`;
+        this.lightboxInfo.textContent =
+            `${this.formatFileSize(image.size)} • ${image.width}×${image.height} • ${image.album}`;
 
-        // Update favorite button
+        // Favorite button icon-only innerHTML is safe (no user data)
         const isFavorited = this.favorites.has(image.id);
         this.favoriteBtn.innerHTML = `<i class="${isFavorited ? 'fas' : 'far'} fa-heart"></i>`;
         this.favoriteBtn.classList.toggle('text-red-500', isFavorited);
@@ -720,12 +892,17 @@ class PhotoGallery {
         }
     }
 
+    // FIX 2 (Memory): obtain blob URL on demand; kept in activeBlobUrls cache
+    // so the browser can serve the download and it is cleaned up on gallery reset.
     downloadImage() {
         if (this.currentIndex >= 0 && this.currentIndex < this.filteredImages.length) {
             const image = this.filteredImages[this.currentIndex];
+            const blobUrl = this.getOrCreateBlobUrl(image.id);
+            if (!blobUrl) return;
+
             const link = document.createElement('a');
-            link.href = image.url;
-            link.download = image.name;
+            link.href = blobUrl;
+            link.download = image.name; // safe – sets attribute value, not HTML
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
@@ -1005,14 +1182,15 @@ class PhotoGallery {
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     }
 
-    generateId() {
-        return `img_${Date.now()}_${this.idCounter++}`;
+    // FIX 3: Thin wrapper kept for backward-compatibility; delegates to the
+    // module-level generateDeterministicId() when a file is available.
+    generateId(file) {
+        return file ? generateDeterministicId(file) : `img_${Date.now()}`;
     }
 
-    // Cleanup Object URLs to prevent memory leaks
+    // FIX 2: Revoke all active blob URLs and disconnect observers
     cleanup() {
-        this.imageUrls.forEach(url => URL.revokeObjectURL(url));
-        this.imageUrls.clear();
+        this.revokeAllBlobUrls();
         if (this.lazyLoadObserver) this.lazyLoadObserver.disconnect();
         if (this.infiniteScrollObserver) this.infiniteScrollObserver.disconnect();
     }
