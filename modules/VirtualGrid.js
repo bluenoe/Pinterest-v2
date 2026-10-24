@@ -139,6 +139,7 @@ export class VirtualGrid {
             img.src = blobUrl;
             img.classList.remove('loading-skeleton');
             img.classList.add('lazy-loaded');
+            wrapper.classList.add('loaded');
         };
         tempImg.onerror = () => {
             img.classList.remove('loading-skeleton');
@@ -266,6 +267,7 @@ export class VirtualGrid {
         const wrapper = item.querySelector('.image-wrapper');
         if (wrapper) {
             wrapper.innerHTML = '';
+            wrapper.classList.remove('loaded');
         }
 
         item.classList.remove('mounted');

@@ -67,7 +67,7 @@
     <div id="galleryContainer" class="hidden">
         <!-- Header - Pinterest Style -->
         <header
-            class="header-minimal sticky top-0 bg-white/95 dark:bg-gray-900/95 backdrop-blur-md z-30 border-b border-gray-100 dark:border-gray-800">
+            class="header-minimal sticky top-0 bg-white/70 dark:bg-gray-900/70 backdrop-blur-md z-30 border-b border-gray-200/50 dark:border-gray-800/50 transition-colors duration-300">
             <div class="max-w-full mx-auto px-3 py-1.5">
                 <div class="flex items-center gap-3">
                     <!-- Logo - Compact -->
@@ -143,18 +143,18 @@
     </div>
 
     <!-- Lightbox Modal -->
-    <div id="lightbox" class="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50 hidden">
-        <button id="closeLightbox" class="absolute top-4 right-4 text-white text-2xl hover:text-gray-300 z-10">
+    <div id="lightbox" class="fixed inset-0 bg-black/85 backdrop-blur-md flex items-center justify-center z-50 hidden">
+        <button id="closeLightbox" class="text-white text-lg z-10" title="Close (Esc)">
             <i class="fas fa-times"></i>
         </button>
 
         <!-- Navigation Buttons -->
         <button id="prevImage"
-            class="absolute left-4 top-1/2 transform -translate-y-1/2 text-white text-3xl hover:text-gray-300 z-10">
+            class="text-white text-2xl z-10" title="Previous (Left Arrow)">
             <i class="fas fa-chevron-left"></i>
         </button>
         <button id="nextImage"
-            class="absolute right-4 top-1/2 transform -translate-y-1/2 text-white text-3xl hover:text-gray-300 z-10">
+            class="text-white text-2xl z-10" title="Next (Right Arrow)">
             <i class="fas fa-chevron-right"></i>
         </button>
 
@@ -173,10 +173,10 @@
                         <p id="lightboxInfo" class="text-sm text-gray-300"></p>
                     </div>
                     <div class="flex items-center space-x-3">
-                        <button id="favoriteBtn" class="text-xl hover:scale-110 transition-transform">
+                        <button id="favoriteBtn" class="text-xl hover:scale-110 transition-transform" title="Favorite (F)">
                             <i class="far fa-heart"></i>
                         </button>
-                        <button id="downloadBtn" class="text-xl hover:scale-110 transition-transform">
+                        <button id="downloadBtn" class="text-xl hover:scale-110 transition-transform" title="Download (D)">
                             <i class="fas fa-download"></i>
                         </button>
                     </div>
@@ -187,7 +187,7 @@
 
     <!-- Slideshow Controls -->
     <div id="slideshowControls"
-        class="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-black bg-opacity-70 text-white px-6 py-3 rounded-full z-60 hidden">
+        class="fixed bottom-6 left-1/2 transform -translate-x-1/2 bg-black/75 dark:bg-gray-900/80 backdrop-blur-xl border border-white/10 text-white px-6 py-3 rounded-full z-60 shadow-2xl transition-all duration-300 hidden">
         <div class="flex items-center space-x-4">
             <button id="slideshowPrevBtn" class="hover:text-gray-300">
                 <i class="fas fa-step-backward"></i>

@@ -55,6 +55,8 @@ export class LightboxController {
         this._cb = callbacks;
 
         this.isOpen      = false;
+        this.isClosing   = false;
+        this._closeTimeout = null;
         this.isSlideshow = false;
         this.slideshowTimer = null;
         this.slideshowSpeed = 3000;
@@ -63,30 +65,54 @@ export class LightboxController {
         this.autoScrollSpeed = 1; // px per rAF frame
 
         this._initTouchSwipe();
+        this._initBackdropClick();
     }
 
     // -------------------------------------------------------------------------
-    // Open / close
+    // Open / close with smooth transitions
     // -------------------------------------------------------------------------
 
     open(index) {
+        if (this._closeTimeout) {
+            clearTimeout(this._closeTimeout);
+            this._closeTimeout = null;
+        }
+        this.isClosing = false;
         this._cb.setCurrentIndex(index);
         this.isOpen = true;
-        this._el.lightbox.classList.remove('hidden');
+
+        this._el.lightbox.classList.remove('hidden', 'lightbox-exiting');
         document.body.style.overflow = 'hidden';
+
+        // Force browser layout reflow before triggering CSS transition
+        void this._el.lightbox.offsetHeight;
+        this._el.lightbox.classList.add('lightbox-active');
+
         this._render();
     }
 
     close() {
-        this.isOpen = false;
-        this._el.lightbox.classList.add('hidden');
-        document.body.style.overflow = '';
+        if (!this.isOpen || this.isClosing) return;
+
+        this.isClosing = true;
+        this._el.lightbox.classList.remove('lightbox-active');
+        this._el.lightbox.classList.add('lightbox-exiting');
 
         const container = document.querySelector('.lightbox-content-container');
         container?.classList.remove('slideshow-mode');
         this._el.lightbox.classList.remove('slideshow-mode');
 
         if (this.isSlideshow) this.stopSlideshow();
+
+        // 200ms graceful exit animation matching CSS transitions
+        this._closeTimeout = setTimeout(() => {
+            this.isOpen = false;
+            this.isClosing = false;
+            this._closeTimeout = null;
+            this._el.lightbox.classList.remove('lightbox-exiting');
+            this._el.lightbox.classList.add('hidden');
+            document.body.style.overflow = '';
+        }, 200);
     }
 
     // -------------------------------------------------------------------------
@@ -349,5 +375,39 @@ export class LightboxController {
         requestAnimationFrame(() =>
             this._autoScrollLoop(autoScrollBtn, getCurrentPage, itemsPerPage, getFilteredImages)
         );
+    }
+
+    // -------------------------------------------------------------------------
+    // Backdrop Click Dismissal (Task 1)
+    // -------------------------------------------------------------------------
+
+    _initBackdropClick() {
+        this._el.lightbox?.addEventListener('click', (e) => {
+            if (!this.isOpen || this.isClosing) return;
+
+            // Target validation: Close ONLY if the click was directly on the
+            // backdrop container or the empty space around the image.
+            // Exclude clicks on interactive elements: image, info bar, action buttons, nav arrows, controls.
+            const isInteractive = e.target.closest(
+                '#lightboxImage, .lightbox-info-bar, #prevImage, #nextImage, #closeLightbox, #slideshowControls, button, a, select, input'
+            );
+
+            if (!isInteractive) {
+                this.close();
+            }
+        });
+    }
+
+    destroy() {
+        if (this._closeTimeout) {
+            clearTimeout(this._closeTimeout);
+            this._closeTimeout = null;
+        }
+        if (this.slideshowTimer) {
+            clearInterval(this.slideshowTimer);
+            this.slideshowTimer = null;
+        }
+        this.isAutoScrolling = false;
+        document.body.style.overflow = '';
     }
 }
