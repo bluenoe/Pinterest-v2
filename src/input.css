@@ -1,0 +1,16 @@
+@import "tailwindcss";
+
+@source "../index.html";
+@source "../modules/**/*.js";
+@source "../script.js";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-pinterest-red: #E60023;
+  --color-pinterest-dark: #111118;
+  --color-pinterest-gray: #767676;
+  --color-pinterest-light: #F7F7F7;
+}
+
+@import "../styles.css";

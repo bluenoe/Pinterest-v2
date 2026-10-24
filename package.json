@@ -1,0 +1,27 @@
+{
+  "name": "pinterest-v2",
+  "version": "1.0.0",
+  "description": "A modern, responsive photo gallery website inspired by Pinterest's design, featuring a masonry layout, favorites system, slideshow functionality, and much more.",
+  "main": "script.js",
+  "type": "module",
+  "scripts": {
+    "build:css": "tailwindcss -i ./src/input.css -o ./dist/styles.css --minify",
+    "watch:css": "tailwindcss -i ./src/input.css -o ./dist/styles.css --watch",
+    "check": "node --check modules/StorageService.js && node --check modules/ImageProcessor.js && node --check modules/LightboxController.js && node --check modules/GalleryRenderer.js && node --check script.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bluenoe/Pinterest-v2.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/bluenoe/Pinterest-v2/issues"
+  },
+  "homepage": "https://github.com/bluenoe/Pinterest-v2#readme",
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.3.3",
+    "tailwindcss": "^4.3.3"
+  }
+}
