@@ -410,3 +410,9 @@ export function renderSelectedFolders(
         containerEl.appendChild(folderItem);
     });
 }
+
+// ---------------------------------------------------------------------------
+// VirtualGrid re-export (Phase P2 DOM Windowing Engine)
+// ---------------------------------------------------------------------------
+export { VirtualGrid } from './VirtualGrid.js';
+

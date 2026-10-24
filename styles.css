@@ -856,3 +856,26 @@ button:focus-visible {
 .gallery-action-btn.slideshow-btn i {
     font-size: 0.75rem;
 }
+
+/* ===== Virtual Grid Windowing & Recycling Styles ===== */
+.gallery-item.mounted {
+    opacity: 1;
+    transform: none;
+    animation: none;
+}
+
+.gallery-item.virtualized {
+    opacity: 1;
+    transform: none;
+    animation: none;
+}
+
+/* Smooth fade-in for hydrated images */
+.gallery-item .lazy-image {
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.gallery-item .lazy-image.lazy-loaded {
+    opacity: 1;
+}
