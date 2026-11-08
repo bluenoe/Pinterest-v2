@@ -14,7 +14,10 @@
 // Constants
 // ---------------------------------------------------------------------------
 
-const IMAGE_EXTENSIONS = /\.(jpg|jpeg|png|gif|bmp|webp|svg)$/i;
+export const IMAGE_EXTENSIONS = /\.(jpg|jpeg|png|gif|bmp|webp|avif|svg)$/i;
+
+// How many images are decoded in parallel while reading dimensions.
+const METADATA_CONCURRENCY = 8;
 
 // ---------------------------------------------------------------------------
 // P0 FIX 3: Deterministic ID generator (djb2 hash)
@@ -48,14 +51,14 @@ export function generateDeterministicId(file) {
  *
  * @param {string}               imageId      - Deterministic image ID.
  * @param {Map<string,string>}   blobUrlCache - The shared active-URL cache.
- * @param {Array<{id,file}>}     images       - Master image record array.
+ * @param {Map<string,{id,file}>} imagesById  - Master image records keyed by ID.
  * @returns {string|null}
  */
-export function getOrCreateBlobUrl(imageId, blobUrlCache, images) {
+export function getOrCreateBlobUrl(imageId, blobUrlCache, imagesById) {
     if (blobUrlCache.has(imageId)) {
         return blobUrlCache.get(imageId);
     }
-    const image = images.find(img => img.id === imageId);
+    const image = imagesById.get(imageId);
     if (!image || !image.file) return null;
     const url = URL.createObjectURL(image.file);
     blobUrlCache.set(imageId, url);
@@ -107,65 +110,101 @@ function parseAlbum(file) {
 }
 
 /**
- * Load an image to extract its natural dimensions.
- * Uses a short-lived blob URL that is revoked immediately after the load
- * event fires — never stored in the persistent blob-URL cache.
+ * Read an image's natural dimensions via a temporary <img> element.
+ * The browser only needs the file header to report naturalWidth/Height,
+ * so this is much cheaper than a full decode (e.g. createImageBitmap).
  *
  * @param {File} file
- * @returns {Promise<{id, name, file, path, album, width, height, size, lastModified, type}>}
+ * @returns {Promise<{width: number, height: number}>}
  */
-export function loadImageMetadata(file) {
+function readDimensions(file) {
     return new Promise((resolve, reject) => {
         const tempUrl = URL.createObjectURL(file);
         const img     = new Image();
-
         img.onload = () => {
             URL.revokeObjectURL(tempUrl); // Release immediately — not cached
             resolve({
-                id:           generateDeterministicId(file),
-                name:         file.name,
-                file:         file,         // Raw File ref; blob URL created on demand
-                path:         file.webkitRelativePath || file.name,
-                album:        parseAlbum(file),
-                width:        img.naturalWidth  || img.width,
-                height:       img.naturalHeight || img.height,
-                size:         file.size,
-                lastModified: file.lastModified,
-                type:         file.type,
+                width:  img.naturalWidth  || img.width,
+                height: img.naturalHeight || img.height,
             });
         };
-
         img.onerror = () => {
             URL.revokeObjectURL(tempUrl);
             reject(new Error(`Failed to decode image: ${file.name}`));
         };
-
         img.src = tempUrl;
     });
 }
 
 /**
+ * Build an image record (ID, album, dimensions, file info) for one File.
+ *
+ * @param {File} file
+ * @returns {Promise<{id, name, file, path, album, width, height, size, lastModified, type}>}
+ */
+export async function loadImageMetadata(file) {
+    const { width, height } = await readDimensions(file);
+    if (!width || !height) {
+        throw new Error(`Image has no dimensions: ${file.name}`);
+    }
+    return {
+        id:           generateDeterministicId(file),
+        name:         file.name,
+        file:         file,         // Raw File ref; blob URL created on demand
+        path:         file.webkitRelativePath || file.name,
+        album:        parseAlbum(file),
+        width,
+        height,
+        size:         file.size,
+        lastModified: file.lastModified,
+        type:         file.type,
+    };
+}
+
+/**
  * Process a flat array of File objects: filter by extension, extract
- * metadata for each, and return a sorted image-record array.
+ * metadata with a bounded worker pool, and return a sorted image-record array.
+ * Files that share an ID (the same file selected twice) are kept once.
  *
  * @param {File[]}              files
  * @param {Map<string,string>}  blobUrlCache - Existing cache to clear first.
+ * @param {function(number, number): void} [onProgress] - (done, total)
  * @returns {Promise<Array>}
  */
-export async function processImages(files, blobUrlCache) {
+export async function processImages(files, blobUrlCache, onProgress) {
     const imageFiles = files.filter(f => IMAGE_EXTENSIONS.test(f.name));
 
     // P0 FIX 2: Revoke any URLs from a previous gallery load before rebuilding
     revokeAllBlobUrls(blobUrlCache);
 
-    const images = [];
-    for (const file of imageFiles) {
-        try {
-            images.push(await loadImageMetadata(file));
-        } catch (err) {
-            console.warn('ImageProcessor: skipping file:', file.name, err.message);
+    const total   = imageFiles.length;
+    const results = new Array(total);
+    let next = 0;
+    let done = 0;
+    onProgress?.(0, total);
+
+    const worker = async () => {
+        while (next < total) {
+            const i = next++;
+            try {
+                results[i] = await loadImageMetadata(imageFiles[i]);
+            } catch (err) {
+                console.warn('ImageProcessor: skipping file:', imageFiles[i].name, err.message);
+            }
+            done++;
+            onProgress?.(done, total);
         }
-    }
+    };
+
+    const poolSize = Math.min(METADATA_CONCURRENCY, total);
+    await Promise.all(Array.from({ length: poolSize }, worker));
+
+    const seen   = new Set();
+    const images = results.filter(img => {
+        if (!img || seen.has(img.id)) return false;
+        seen.add(img.id);
+        return true;
+    });
 
     images.sort((a, b) => a.name.localeCompare(b.name));
     return images;

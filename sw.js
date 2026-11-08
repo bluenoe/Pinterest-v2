@@ -1,8 +1,9 @@
 // Service Worker for Pinterest Gallery
-// Pure Offline-First Caching Engine (Phase P2)
+// Network-first for app files (users always get the latest deploy when online),
+// cache fallback when offline. Cross-origin assets (CDN) use cache-first.
 
-const CACHE_NAME = 'pinterest-gallery-v2';
-const urlsToCache = [
+const CACHE_NAME = 'pinterest-gallery-v3';
+const APP_SHELL = [
     './',
     './index.html',
     './dist/styles.css',
@@ -12,57 +13,79 @@ const urlsToCache = [
     './modules/GalleryRenderer.js',
     './modules/LightboxController.js',
     './modules/VirtualGrid.js',
-    './manifest.json',
+    './manifest.json'
+];
+const CDN_ASSETS = [
     'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css'
 ];
 
-// Install event - cache all local application assets
+// Install: cache each asset on its own, so one failed request (e.g. CDN down)
+// does not leave the whole cache empty the way cache.addAll() would.
 self.addEventListener('install', (event) => {
     event.waitUntil(
-        caches.open(CACHE_NAME)
-            .then((cache) => {
-                return cache.addAll(urlsToCache);
-            })
-            .catch((error) => {
-                console.warn('SW cache installation warning:', error);
-            })
+        caches.open(CACHE_NAME).then((cache) =>
+            Promise.allSettled(
+                [...APP_SHELL, ...CDN_ASSETS].map((url) =>
+                    cache.add(url).catch((error) => {
+                        console.warn('SW: failed to cache', url, error);
+                    })
+                )
+            )
+        )
     );
     self.skipWaiting();
 });
 
-// Fetch event - cache-first strategy with network fallback
-self.addEventListener('fetch', (event) => {
-    // Only handle GET requests and skip non-http(s) schemes (e.g. blob:)
-    if (event.request.method !== 'GET' || !event.request.url.startsWith('http')) {
-        return;
-    }
-
-    event.respondWith(
-        caches.match(event.request)
-            .then((cachedResponse) => {
-                if (cachedResponse) {
-                    return cachedResponse;
-                }
-                return fetch(event.request).catch(() => {
-                    if (event.request.destination === 'document') {
-                        return caches.match('./index.html');
-                    }
-                });
-            })
+// Activate: remove caches from older versions
+self.addEventListener('activate', (event) => {
+    event.waitUntil(
+        caches.keys()
+            .then((cacheNames) => Promise.all(
+                cacheNames
+                    .filter((name) => name !== CACHE_NAME)
+                    .map((name) => caches.delete(name))
+            ))
+            .then(() => self.clients.claim())
     );
 });
 
-// Activate event - clean up old caches immediately
-self.addEventListener('activate', (event) => {
-    event.waitUntil(
-        caches.keys().then((cacheNames) => {
-            return Promise.all(
-                cacheNames.map((cacheName) => {
-                    if (cacheName !== CACHE_NAME) {
-                        return caches.delete(cacheName);
-                    }
-                })
-            );
-        }).then(() => self.clients.claim())
-    );
+async function networkFirst(request) {
+    const cache = await caches.open(CACHE_NAME);
+    try {
+        const response = await fetch(request);
+        if (response.ok) {
+            cache.put(request, response.clone());
+        }
+        return response;
+    } catch (error) {
+        const cached = await cache.match(request, { ignoreSearch: true });
+        if (cached) return cached;
+        if (request.mode === 'navigate') {
+            const shell = await cache.match('./index.html');
+            if (shell) return shell;
+        }
+        throw error;
+    }
+}
+
+async function cacheFirst(request) {
+    const cached = await caches.match(request);
+    if (cached) return cached;
+    const response = await fetch(request);
+    if (response.ok) {
+        const cache = await caches.open(CACHE_NAME);
+        cache.put(request, response.clone());
+    }
+    return response;
+}
+
+self.addEventListener('fetch', (event) => {
+    const { request } = event;
+    // Only handle GET over http(s); skip blob:, data:, chrome-extension:, etc.
+    if (request.method !== 'GET' || !request.url.startsWith('http')) {
+        return;
+    }
+
+    const isSameOrigin = new URL(request.url).origin === self.location.origin;
+    event.respondWith(isSameOrigin ? networkFirst(request) : cacheFirst(request));
 });

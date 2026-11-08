@@ -26,7 +26,8 @@ import {
     revokeAllBlobUrls,
     loadImageMetadata,
     processImages,
-    collectDroppedImageFiles
+    collectDroppedImageFiles,
+    IMAGE_EXTENSIONS
 } from './modules/ImageProcessor.js';
 
 import {
@@ -49,6 +50,9 @@ export class PhotoGallery {
         this.images = [];
         this.filteredImages = [];
 
+        // O(1) lookup: Map<imageId, imageRecord>
+        this.imagesById = new Map();
+
         // Active blob URL cache: Map<imageId, blobUrl>
         this.activeBlobUrls = new Map();
 
@@ -63,6 +67,10 @@ export class PhotoGallery {
         this.albums = new Map();
         this.showFavoritesOnly = false;
         this.searchQuery = '';
+        this._searchDebounceTimer = null;
+
+        // Single infinite-scroll observer (replaced, never stacked)
+        this.infiniteScrollObserver = null;
 
         // Multi-folder model: Array<{name: string, files: File[], selected: boolean}>
         this.selectedFolders = [];
@@ -80,7 +88,7 @@ export class PhotoGallery {
         // Initialize Virtual Grid engine (Phase P2 Windowing)
         this.virtualGrid = new VirtualGrid({
             gridContainer: this.galleryGrid,
-            getBlobUrl: (id) => getOrCreateBlobUrl(id, this.activeBlobUrls, this.images),
+            getBlobUrl: (id) => getOrCreateBlobUrl(id, this.activeBlobUrls, this.imagesById),
             revokeBlobUrl: (id) => revokeBlobUrl(id, this.activeBlobUrls),
             onOpenLightbox: (idx) => this.lightboxController.open(idx),
             onStartSlideshow: (idx) => this.lightboxController.startSlideshow(idx),
@@ -112,7 +120,7 @@ export class PhotoGallery {
                 autoScrollBtn: this.autoScrollBtn
             },
             {
-                getBlobUrl: (id) => getOrCreateBlobUrl(id, this.activeBlobUrls, this.images),
+                getBlobUrl: (id) => getOrCreateBlobUrl(id, this.activeBlobUrls, this.imagesById),
                 getFilteredImages: () => this.filteredImages,
                 getCurrentIndex: () => this.currentIndex,
                 setCurrentIndex: (idx) => {
@@ -189,7 +197,11 @@ export class PhotoGallery {
         this._initDragAndDrop();
 
         // Search & Filter
-        this.searchInput?.addEventListener('input', (e) => this.handleSearch(e.target.value));
+        this.searchInput?.addEventListener('input', (e) => {
+            clearTimeout(this._searchDebounceTimer);
+            const value = e.target.value;
+            this._searchDebounceTimer = setTimeout(() => this.handleSearch(value), 200);
+        });
         this.albumSelect?.addEventListener('change', (e) => this.handleAlbumChange(e.target.value));
         this.favoritesToggle?.addEventListener('click', () => this.toggleFavoritesView());
 
@@ -264,8 +276,7 @@ export class PhotoGallery {
         const files = Array.from(event.target.files);
         if (files.length === 0) return;
 
-        const imageExtensions = /\.(jpg|jpeg|png|gif|bmp|webp|svg)$/i;
-        const imageFiles = files.filter(f => imageExtensions.test(f.name));
+        const imageFiles = files.filter(f => IMAGE_EXTENSIONS.test(f.name));
 
         if (imageFiles.length === 0) {
             this.showError('No supported images found in selected folder.');
@@ -362,7 +373,10 @@ export class PhotoGallery {
 
         try {
             // Process images and extract metadata (with deterministic IDs)
-            this.images = await processImages(activeFiles, this.activeBlobUrls);
+            this.images = await processImages(activeFiles, this.activeBlobUrls, (done, total) => {
+                this.updateLoadingProgress(done, total);
+            });
+            this.imagesById = new Map(this.images.map(img => [img.id, img]));
             this.filteredImages = [...this.images];
 
             // Organize albums
@@ -412,9 +426,11 @@ export class PhotoGallery {
 
         this.currentPage++;
 
-        // Setup or reattach infinite scroll
+        // Setup infinite scroll once per render (disconnect the previous observer
+        // so filter/search changes never stack duplicate observers)
         if (this.currentPage === 1) {
-            setupInfiniteScroll(
+            this.infiniteScrollObserver?.disconnect();
+            this.infiniteScrollObserver = setupInfiniteScroll(
                 this.loadMoreContainer,
                 () => this.loadMoreImages(),
                 () => this.hasMoreImages()
@@ -548,6 +564,15 @@ export class PhotoGallery {
 
     showLoading(show) {
         this.loadingOverlay?.classList.toggle('hidden', !show);
+        if (show) this.updateLoadingProgress(0, 0);
+    }
+
+    updateLoadingProgress(done, total) {
+        const label = document.getElementById('loadingText');
+        if (!label) return;
+        label.textContent = total > 0
+            ? `Loading images... ${done}/${total}`
+            : 'Loading images...';
     }
 
     showError(message) {
@@ -580,6 +605,8 @@ export class PhotoGallery {
     }
 
     cleanup() {
+        clearTimeout(this._searchDebounceTimer);
+        this.infiniteScrollObserver?.disconnect();
         revokeAllBlobUrls(this.activeBlobUrls);
         this.virtualGrid.destroy();
         this.lightboxController.destroy();
