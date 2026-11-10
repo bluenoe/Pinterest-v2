@@ -103,6 +103,7 @@ export class LightboxController {
             document.body.style.overflow = '';
             this._el.lightboxImage.removeAttribute('src');
             this._releaseFullUrls(new Set());
+            this._cb.onClose?.();
         }, 200);
     }
 

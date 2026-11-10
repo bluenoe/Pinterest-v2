@@ -8,6 +8,7 @@
  * A 480px-wide thumbnail costs ~0.6 MB and decodes almost instantly.
  *
  * Responsibilities:
+ *  - Reuse thumbnails saved on disk by earlier visits (IndexedDB).
  *  - Queue thumbnail jobs, always serving the item closest to the viewport first.
  *  - Generate thumbnails in a Web Worker (off the main thread).
  *  - Remember each image's average colour for placeholders.
@@ -16,7 +17,50 @@
  *    (no Worker/OffscreenCanvas support, SVG, animated GIF, small images).
  */
 
+import { withStore, isIndexedDBAvailable } from './LocalDB.js';
+
 const WORKER_URL = new URL('./ThumbnailWorker.js', import.meta.url);
+
+// Thumbnails kept on disk between visits (~40 KB each → ~200 MB at most)
+const PERSIST_MAX = 5000;
+
+/** Identifies the exact file a stored thumbnail was made from. */
+function fingerprint(image) {
+    return `${image.name}|${image.size}|${image.lastModified}|${image.path}`;
+}
+
+/**
+ * On-disk thumbnail cache (IndexedDB). A record is only used when its
+ * fingerprint matches, so an edited or different file never shows a stale
+ * thumbnail.
+ */
+const thumbStore = {
+    async get(key, fp) {
+        const rec = await withStore('thumbs', 'readonly', (store, p) => p(store.get(key)));
+        return rec && rec.fp === fp && rec.blob ? rec : null;
+    },
+    put(key, record) {
+        return withStore('thumbs', 'readwrite', store => {
+            store.put({ key, ...record, t: Date.now() });
+        });
+    },
+    async prune(max) {
+        const count = await withStore('thumbs', 'readonly', (store, p) => p(store.count()));
+        if (count <= max) return;
+        let toDelete = count - Math.floor(max * 0.9);
+        await withStore('thumbs', 'readwrite', store => new Promise(resolve => {
+            const req = store.index('t').openCursor(); // oldest first
+            req.onsuccess = () => {
+                const cursor = req.result;
+                if (!cursor || toDelete <= 0) return resolve();
+                cursor.delete();
+                toDelete--;
+                cursor.continue();
+            };
+            req.onerror = () => resolve();
+        }));
+    }
+};
 
 const CAN_USE_WORKER =
     typeof Worker !== 'undefined' &&
@@ -54,6 +98,14 @@ export class ThumbnailService {
         this.workers = [];
         this.workerLoad = [];
         this.workerFailed = !CAN_USE_WORKER;
+
+        this.persistEnabled = isIndexedDBAvailable();
+        this.persistentHits = 0;
+        this.generated = 0;
+        // Housekeeping once things have settled
+        setTimeout(() => {
+            if (this.persistEnabled) thumbStore.prune(PERSIST_MAX).catch(() => {});
+        }, 10000);
     }
 
     // ---------------------------------------------------------------------
@@ -96,8 +148,13 @@ export class ThumbnailService {
         const job = { image, width, element, sent: false };
         job.promise = new Promise(resolve => { job.resolve = resolve; });
         this.jobs.set(image.id, job);
-        this.queue.push(job);
-        this._pump();
+
+        if (this.persistEnabled && this._needsThumbnail(image, width)) {
+            this._lookupPersistent(job); // disk first, worker only on a miss
+        } else {
+            this.queue.push(job);
+            this._pump();
+        }
         return job.promise;
     }
 
@@ -166,7 +223,9 @@ export class ThumbnailService {
         return {
             cachedThumbnails: this.cache.size,
             queued: this.queue.length,
-            inFlight: this.inFlight
+            inFlight: this.inFlight,
+            thumbnailsFromDisk: this.persistentHits,
+            thumbnailsGenerated: this.generated
         };
     }
 
@@ -240,6 +299,28 @@ export class ThumbnailService {
         return this.queue.splice(best, 1)[0];
     }
 
+    _lookupPersistent(job) {
+        const { image, width } = job;
+        const enqueue = () => {
+            if (this.jobs.get(image.id) !== job) return; // cancelled meanwhile
+            this.queue.push(job);
+            this._pump();
+        };
+        thumbStore.get(`${image.id}:${width}`, fingerprint(image)).then(rec => {
+            if (this.jobs.get(image.id) !== job) return;
+            if (!rec) return enqueue();
+            if (rec.color) {
+                const [r, g, b] = rec.color;
+                this.colors.set(image.id, `rgb(${r}, ${g}, ${b})`);
+            }
+            this.persistentHits++;
+            this._finish(job, URL.createObjectURL(rec.blob));
+        }, () => {
+            this.persistEnabled = false; // storage unavailable (e.g. private mode)
+            enqueue();
+        });
+    }
+
     _needsThumbnail(image, width) {
         const type = (image.type || '').toLowerCase();
         const name = (image.name || '').toLowerCase();
@@ -287,6 +368,16 @@ export class ThumbnailService {
                 if (data.color) {
                     const [r, g, b] = data.color;
                     this.colors.set(data.id, `rgb(${r}, ${g}, ${b})`);
+                }
+                this.generated++;
+                if (this.persistEnabled) {
+                    thumbStore.put(`${job.image.id}:${job.width}`, {
+                        fp: fingerprint(job.image),
+                        blob: data.blob,
+                        color: data.color,
+                        width: data.width,
+                        height: data.height
+                    }).catch(() => { this.persistEnabled = false; });
                 }
                 this._finish(job, URL.createObjectURL(data.blob));
             }

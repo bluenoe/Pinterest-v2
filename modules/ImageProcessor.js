@@ -19,6 +19,32 @@ export const IMAGE_EXTENSIONS = /\.(jpg|jpeg|png|gif|bmp|webp|avif|svg)$/i;
 // How many images are decoded in parallel while reading dimensions.
 const METADATA_CONCURRENCY = 8;
 
+/** True for files the gallery can display (by extension, like the folder picker). */
+export function isImageFile(file) {
+    return IMAGE_EXTENSIONS.test(file.name);
+}
+
+/**
+ * Path of a file relative to the folder the user opened, e.g. "travel/beach/a.jpg".
+ *
+ * The folder picker fills in webkitRelativePath. Files that come from drag-and-drop
+ * or from a remembered folder handle do not have it, so the importers below store
+ * the same path in `_relativePath`. Using one helper everywhere means a photo gets
+ * the same ID (and keeps its favorite) however its folder was opened.
+ *
+ * @param {File} file
+ * @returns {string} '' for loose files that are not inside a folder
+ */
+export function relativePathOf(file) {
+    return file.webkitRelativePath || file._relativePath || '';
+}
+
+function setRelativePath(file, path) {
+    // Only paths inside a folder count (matches what the folder picker reports)
+    if (path.includes('/')) file._relativePath = path;
+    return file;
+}
+
 // ---------------------------------------------------------------------------
 // P0 FIX 3: Deterministic ID generator (djb2 hash)
 // ---------------------------------------------------------------------------
@@ -32,7 +58,7 @@ const METADATA_CONCURRENCY = 8;
  * @returns {string}  e.g. "img_1a2b3c4d"
  */
 export function generateDeterministicId(file) {
-    const raw = `${file.name}|${file.size}|${file.lastModified}|${file.webkitRelativePath || ''}`;
+    const raw = `${file.name}|${file.size}|${file.lastModified}|${relativePathOf(file)}`;
     let hash = 5381;
     for (let i = 0; i < raw.length; i++) {
         hash = ((hash << 5) + hash) ^ raw.charCodeAt(i);
@@ -95,7 +121,7 @@ export function revokeAllBlobUrls(blobUrlCache) {
 // ---------------------------------------------------------------------------
 
 /**
- * Extract the album name from a file's webkitRelativePath.
+ * Album = the folder that directly contains the photo.
  * e.g. "holidays/beach/img.jpg" → "beach"
  *      "img.jpg"                → "Main"
  *
@@ -103,10 +129,8 @@ export function revokeAllBlobUrls(blobUrlCache) {
  * @returns {string}
  */
 function parseAlbum(file) {
-    const pathParts = file.webkitRelativePath
-        ? file.webkitRelativePath.split('/')
-        : [file.name];
-    return pathParts.length > 1 ? pathParts[pathParts.length - 2] : 'Main';
+    const parts = (relativePathOf(file) || file.name).split('/');
+    return parts.length > 1 ? parts[parts.length - 2] : 'Main';
 }
 
 /**
@@ -151,7 +175,7 @@ export async function loadImageMetadata(file) {
         id:           generateDeterministicId(file),
         name:         file.name,
         file:         file,         // Raw File ref; blob URL created on demand
-        path:         file.webkitRelativePath || file.name,
+        path:         relativePathOf(file) || file.name,
         album:        parseAlbum(file),
         width,
         height,
@@ -206,19 +230,18 @@ export async function processImages(files, blobUrlCache, onProgress) {
         return true;
     });
 
-    images.sort((a, b) => a.name.localeCompare(b.name));
+    images.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
     return images;
 }
 
 // ---------------------------------------------------------------------------
-// P0 FIX 4: Drag-and-drop ingestion with directory traversal
+// Folder ingestion: drag-and-drop and remembered folder handles
 // ---------------------------------------------------------------------------
 
 /**
- * Recursively collect all File objects from a FileSystemEntry.
- * Handles both FileSystemFileEntry and FileSystemDirectoryEntry.
- * readEntries() may return batches smaller than the full directory listing,
- * so we loop until an empty batch is returned.
+ * Recursively collect image files from a FileSystemEntry (drag-and-drop API).
+ * Each file gets the folder-relative path the picker would have reported.
+ * readEntries() is paginated, so it is called until it returns an empty batch.
  *
  * @param {FileSystemEntry} entry
  * @param {File[]}          result  - Array to push files into (mutated).
@@ -228,8 +251,13 @@ export function collectFilesFromEntry(entry, result) {
     return new Promise(resolve => {
         if (entry.isFile) {
             entry.file(
-                file => { result.push(file); resolve(); },
-                ()   => resolve()
+                file => {
+                    if (isImageFile(file)) {
+                        result.push(setRelativePath(file, entry.fullPath.replace(/^\//, '')));
+                    }
+                    resolve();
+                },
+                () => resolve()
             );
         } else if (entry.isDirectory) {
             const reader = entry.createReader();
@@ -242,7 +270,7 @@ export function collectFilesFromEntry(entry, result) {
                             for (const e of entries) {
                                 await collectFilesFromEntry(e, result);
                             }
-                            readBatch(); // readEntries may be paginated
+                            readBatch();
                         }
                     },
                     () => resolve()
@@ -256,36 +284,71 @@ export function collectFilesFromEntry(entry, result) {
 }
 
 /**
- * Normalise a DataTransfer object (from a drag-and-drop event) into an array
- * of image File objects, following directory entries recursively when possible.
+ * Recursively collect image files from a FileSystemDirectoryHandle
+ * (File System Access API: remembered folders, Chrome/Edge drag-and-drop).
  *
- * @param {DataTransfer} dataTransfer
- * @returns {Promise<File[]>}  Only image files; empty if none found.
+ * @param {FileSystemDirectoryHandle} dirHandle
+ * @param {string} [prefix] - Path of this folder relative to the opened folder.
+ * @returns {Promise<File[]>}
  */
-export async function collectDroppedImageFiles(dataTransfer) {
-    const allFiles = [];
-
-    if (dataTransfer.items && dataTransfer.items.length > 0) {
-        const entries = [];
-        for (const item of dataTransfer.items) {
-            if (item.kind !== 'file') continue;
-            const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
-            if (entry) {
-                entries.push(entry);
-            } else {
-                const file = item.getAsFile();
-                if (file) allFiles.push(file);
+export async function collectFilesFromDirectoryHandle(dirHandle, prefix = dirHandle.name) {
+    const files = [];
+    const walk = async (dir, path) => {
+        for await (const handle of dir.values()) {
+            const childPath = `${path}/${handle.name}`;
+            if (handle.kind === 'directory') {
+                await walk(handle, childPath);
+            } else if (IMAGE_EXTENSIONS.test(handle.name)) {
+                try {
+                    files.push(setRelativePath(await handle.getFile(), childPath));
+                } catch {
+                    // Unreadable file (deleted meanwhile, permission): skip it
+                }
             }
         }
-        for (const entry of entries) {
-            await collectFilesFromEntry(entry, allFiles);
+    };
+    await walk(dirHandle, prefix);
+    return files;
+}
+
+/**
+ * Turn a drop into folders: every dropped directory becomes its own folder
+ * (with its handle when the browser provides one, so it can be remembered),
+ * loose image files are grouped as "Dropped files".
+ *
+ * Everything is read from the DataTransfer synchronously first: the browser
+ * empties it as soon as the drop event handler returns.
+ *
+ * @param {DataTransfer} dataTransfer
+ * @returns {Promise<Array<{name: string, files: File[], handle: FileSystemDirectoryHandle|null}>>}
+ */
+export async function collectDroppedFolders(dataTransfer) {
+    const items = Array.from(dataTransfer.items || []).filter(item => item.kind === 'file');
+    const grabbed = items.map(item => ({
+        handle: typeof item.getAsFileSystemHandle === 'function'
+            ? item.getAsFileSystemHandle().catch(() => null)
+            : null,
+        entry: typeof item.webkitGetAsEntry === 'function' ? item.webkitGetAsEntry() : null,
+        file: item.getAsFile()
+    }));
+    const fallbackFiles = items.length === 0 ? Array.from(dataTransfer.files || []) : [];
+
+    const folders = [];
+    const loose = fallbackFiles.filter(isImageFile);
+
+    for (const g of grabbed) {
+        const handle = g.handle ? await g.handle : null;
+        if (handle && handle.kind === 'directory') {
+            folders.push({ name: handle.name, files: await collectFilesFromDirectoryHandle(handle), handle });
+        } else if (g.entry && g.entry.isDirectory) {
+            const files = [];
+            await collectFilesFromEntry(g.entry, files);
+            folders.push({ name: g.entry.name, files, handle: null });
+        } else if (g.file && isImageFile(g.file)) {
+            loose.push(g.file);
         }
-    } else {
-        // Fallback: plain FileList (older browsers)
-        for (const file of dataTransfer.files) allFiles.push(file);
     }
 
-    return allFiles.filter(
-        f => f.type.startsWith('image/') || IMAGE_EXTENSIONS.test(f.name)
-    );
+    if (loose.length > 0) folders.push({ name: 'Dropped files', files: loose, handle: null });
+    return folders.filter(f => f.files.length > 0);
 }

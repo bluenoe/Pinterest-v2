@@ -127,13 +127,25 @@ export class VirtualGrid {
         };
 
         this._onKeyDown = (e) => {
-            if (e.key !== 'Enter' && e.key !== ' ') return;
             const card = e.target.closest?.('.gallery-item');
-            if (!card || e.target !== card) return;
-            e.preventDefault();
-            const item = this.elToItem.get(card);
-            const idx = item ? this.findIndex(item.image.id) : -1;
-            if (idx !== -1) this.onOpenLightbox(idx);
+            if (!card || e.target !== card || e.altKey || e.ctrlKey || e.metaKey) return;
+
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                const item = this.elToItem.get(card);
+                const idx = item ? this.findIndex(item.image.id) : -1;
+                if (idx !== -1) this.onOpenLightbox(idx);
+                return;
+            }
+
+            if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                e.preventDefault();
+                const next = this._neighbour(card, e.key);
+                if (next) {
+                    next.focus({ preventScroll: true });
+                    next.scrollIntoView({ block: 'nearest' });
+                }
+            }
         };
 
         this._anchor = null;
@@ -329,6 +341,43 @@ export class VirtualGrid {
         window.removeEventListener('scroll', this._onScroll);
         clearTimeout(this._resizeTimer);
         clearTimeout(this._scrollTimer);
+    }
+
+    /**
+     * Card next to `card` in the direction of an arrow key: up/down move
+     * within the column, left/right jump to the card at the same height in
+     * the neighbouring column.
+     */
+    _neighbour(card, key) {
+        const col = card.parentElement;
+        if (key === 'ArrowUp') return card.previousElementSibling;
+        if (key === 'ArrowDown') return card.nextElementSibling;
+
+        const colIndex = this.columns.indexOf(col);
+        const target = this.columns[colIndex + (key === 'ArrowLeft' ? -1 : 1)];
+        if (!target || target.children.length === 0) return null;
+
+        const r = card.getBoundingClientRect();
+        const centre = r.top + r.height / 2;
+        let best = null;
+        let bestDist = Number.POSITIVE_INFINITY;
+        for (const el of target.children) {
+            const er = el.getBoundingClientRect();
+            const dist = Math.abs(er.top + er.height / 2 - centre);
+            if (dist < bestDist) {
+                bestDist = dist;
+                best = el;
+            } else if (er.top > centre) {
+                break; // columns are top-to-bottom: no closer card further down
+            }
+        }
+        return best;
+    }
+
+    /** Move keyboard focus to a photo's card (e.g. after closing the viewer). */
+    focusItem(imageId) {
+        const item = this.idToItem.get(imageId);
+        if (item) item.el.focus({ preventScroll: true });
     }
 
     getStats() {

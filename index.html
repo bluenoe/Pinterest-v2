@@ -54,19 +54,33 @@
             <h1 class="welcome-title">Your photos,<br>quietly arranged.</h1>
             <p class="welcome-sub">Open a folder and browse it as one calm, endless grid.</p>
 
+            <!-- Remembered folders (Chrome/Edge) -->
+            <section id="recentSection" class="recent hidden" aria-label="Recent folders">
+                <button id="continueBtn" type="button" class="continue-btn hidden">
+                    <span class="continue-text">
+                        <span class="continue-label">Continue</span>
+                        <span id="continueNames" class="continue-names"></span>
+                    </span>
+                    <span id="continueMeta" class="continue-meta"></span>
+                    <svg class="icon" aria-hidden="true"><use href="#i-chevron-right"></use></svg>
+                </button>
+                <p class="recent-head">Recent</p>
+                <div id="recentList" class="recent-list"></div>
+            </section>
+
             <div id="dropZone" class="drop-zone">
-                <input type="file" id="folderInput" class="sr-only" webkitdirectory directory multiple>
+                <input type="file" id="folderInput" class="sr-only" tabindex="-1" aria-hidden="true" webkitdirectory directory multiple>
                 <svg class="icon drop-icon" aria-hidden="true"><use href="#i-upload"></use></svg>
                 <p class="drop-title">Drop a folder here</p>
                 <p class="drop-or">or</p>
-                <label id="chooseFolderLabel" for="folderInput" class="btn btn-secondary">
+                <button id="chooseFolderBtn" type="button" class="btn btn-secondary">
                     <span data-label>Choose a folder</span>
-                </label>
+                </button>
             </div>
 
             <div id="selectedFoldersList" class="folder-list"></div>
 
-            <button id="startGallery" class="btn btn-primary btn-block" disabled>Start Exploring</button>
+            <button id="startGallery" class="btn btn-primary btn-block hidden" disabled>Start Exploring</button>
 
             <p class="welcome-note">
                 <svg class="icon" aria-hidden="true"><use href="#i-lock"></use></svg>
@@ -96,6 +110,14 @@
                     <div id="albumSelector" class="album hidden">
                         <select id="albumSelect" class="album-select" aria-label="Album">
                             <option value="all">All</option>
+                        </select>
+                    </div>
+                    <div class="sort">
+                        <select id="sortSelect" class="album-select" aria-label="Sort photos">
+                            <option value="name">Name</option>
+                            <option value="newest">Newest</option>
+                            <option value="oldest">Oldest</option>
+                            <option value="largest">Largest</option>
                         </select>
                     </div>
                     <span id="photoCount" class="photo-count"></span>

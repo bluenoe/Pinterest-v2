@@ -9,23 +9,29 @@
  *  - VirtualGrid: stable masonry layout, viewport windowing, smooth image reveal.
  *  - GalleryRenderer: filters, header counters, folder list, infinite scroll.
  *  - LightboxController: modal viewer, slideshow, swipe, keyboard shortcuts.
+ *  - FolderStore: remembered folders ("Continue" on the welcome screen).
  */
 
 import {
     loadFavorites,
     toggleFavorite as storageToggleFavorite,
     applyInitialTheme,
-    saveTheme
+    saveTheme,
+    loadSort,
+    saveSort
 } from './modules/StorageService.js';
 
 import {
     processImages,
-    collectDroppedImageFiles,
+    collectDroppedFolders,
+    collectFilesFromDirectoryHandle,
     IMAGE_EXTENSIONS
 } from './modules/ImageProcessor.js';
 
 import {
     applyFilters,
+    sortImages,
+    SORT_MODES,
     renderAlbumSelector,
     renderPhotoCount,
     renderFavoritesBadge,
@@ -36,6 +42,17 @@ import {
 import { VirtualGrid } from './modules/VirtualGrid.js';
 import { ThumbnailService } from './modules/ThumbnailService.js';
 import { LightboxController } from './modules/LightboxController.js';
+import { icon } from './modules/icons.js';
+import {
+    isFolderMemorySupported,
+    isFolderMemoryAvailable,
+    listFolders,
+    rememberFolder,
+    forgetFolder,
+    getLastSession,
+    setLastSession,
+    ensureReadPermission
+} from './modules/FolderStore.js';
 
 const PAGE_SIZE = 60;
 const PREFETCH_DISTANCE = 2000; // px below the viewport at which the next page is added
@@ -62,8 +79,17 @@ export class PhotoGallery {
         // Favorites Set<string>
         this.favorites = loadFavorites();
 
-        // Multi-folder model: Array<{name: string, files: File[], selected: boolean}>
+        // Multi-folder model:
+        // Array<{name, files: File[], selected, handle?: FileSystemDirectoryHandle, storeId?: number}>
         this.selectedFolders = [];
+
+        // Remembered folders (Chrome/Edge)
+        this.recentFolders = [];
+        this.lastSessionFolders = [];
+
+        // Sort order
+        const savedSort = loadSort();
+        this.sortMode = SORT_MODES.includes(savedSort) ? savedSort : 'name';
 
         // Auto-scroll state
         this.isAutoScrolling = false;
@@ -111,13 +137,17 @@ export class PhotoGallery {
                         this.virtualGrid.setSlideshowActive(this.filteredImages[this.currentIndex]?.id);
                     }
                 },
-                onSlideshowStop: () => this.virtualGrid.setSlideshowActive(null)
+                onSlideshowStop: () => this.virtualGrid.setSlideshowActive(null),
+                // Keyboard users continue from the photo they were viewing
+                onClose: () => this.virtualGrid.focusItem(this.filteredImages[this.currentIndex]?.id)
             }
         );
 
         this._initEventListeners();
         renderFavoritesBadge(this.favoritesToggle, this.favorites.size);
         this._updateToggleStates();
+        if (this.sortSelect) this.sortSelect.value = this.sortMode;
+        this.renderRecent();
     }
 
     // -------------------------------------------------------------------------
@@ -129,7 +159,12 @@ export class PhotoGallery {
         this.welcomeScreen        = document.getElementById('welcomeScreen');
         this.dropZone             = document.getElementById('dropZone');
         this.folderInput          = document.getElementById('folderInput');
-        this.chooseFolderLabel    = document.getElementById('chooseFolderLabel');
+        this.chooseFolderBtn      = document.getElementById('chooseFolderBtn');
+        this.recentSection        = document.getElementById('recentSection');
+        this.recentList           = document.getElementById('recentList');
+        this.continueBtn          = document.getElementById('continueBtn');
+        this.continueNames        = document.getElementById('continueNames');
+        this.continueMeta         = document.getElementById('continueMeta');
         this.startGalleryBtn      = document.getElementById('startGallery');
         this.selectedFoldersList  = document.getElementById('selectedFoldersList');
 
@@ -146,6 +181,7 @@ export class PhotoGallery {
         this.clearSearchBtn       = document.getElementById('clearSearchBtn');
         this.albumSelector        = document.getElementById('albumSelector');
         this.albumSelect          = document.getElementById('albumSelect');
+        this.sortSelect           = document.getElementById('sortSelect');
         this.favoritesToggle      = document.getElementById('favoritesToggle');
 
         // Lightbox
@@ -171,6 +207,8 @@ export class PhotoGallery {
     _initEventListeners() {
         // Welcome screen
         this.folderInput?.addEventListener('change', (e) => this.handleFolderSelection(e));
+        this.chooseFolderBtn?.addEventListener('click', () => this.chooseFolder());
+        this.continueBtn?.addEventListener('click', () => this.continueLastSession());
         this.startGalleryBtn?.addEventListener('click', () => this.startGallery());
         this._initDragAndDrop();
 
@@ -193,6 +231,7 @@ export class PhotoGallery {
         });
         this.clearFiltersBtn?.addEventListener('click', () => this.clearAllFilters());
         this.albumSelect?.addEventListener('change', (e) => this.handleAlbumChange(e.target.value));
+        this.sortSelect?.addEventListener('change', (e) => this.setSort(e.target.value));
         this.favoritesToggle?.addEventListener('click', () => this.toggleFavoritesView());
 
         // Lightbox modal buttons
@@ -308,6 +347,7 @@ export class PhotoGallery {
     // Folder Ingestion & Multi-Folder Management
     // -------------------------------------------------------------------------
 
+    /** Classic folder picker (all browsers). Files carry webkitRelativePath. */
     handleFolderSelection(event) {
         const files = Array.from(event.target.files);
         if (files.length === 0) return;
@@ -325,30 +365,95 @@ export class PhotoGallery {
         this.folderInput.value = '';
     }
 
-    async handleDroppedFiles(dataTransfer) {
-        this.showLoading(true);
+    /**
+     * "Choose a folder": Chrome/Edge use the File System Access picker so the
+     * folder can be remembered; other browsers fall back to the classic picker.
+     */
+    async chooseFolder() {
+        if (!isFolderMemorySupported()) {
+            this.folderInput?.click();
+            return;
+        }
+        let handle;
         try {
-            const imageFiles = await collectDroppedImageFiles(dataTransfer);
-            if (imageFiles.length === 0) {
-                this.showError('No supported images found in dropped files or folders.');
-                return;
-            }
-            const firstPath = imageFiles[0].webkitRelativePath || imageFiles[0].name;
-            const parts = firstPath.split('/');
-            this._addFolder(parts.length > 1 ? parts[0] : 'Dropped Files', imageFiles);
+            handle = await window.showDirectoryPicker({ id: 'gallery', mode: 'read' });
         } catch (err) {
-            console.error('Error handling dropped files:', err);
-            this.showError('Failed to process dropped files.');
+            if (err?.name !== 'AbortError') this.folderInput?.click(); // e.g. blocked in an iframe
+            return;
+        }
+        await this._addFolderFromHandle(handle);
+    }
+
+    async _isAlreadyAdded(handle) {
+        for (const folder of this.selectedFolders) {
+            try {
+                if (folder.handle && await folder.handle.isSameEntry(handle)) return folder;
+            } catch {
+                // ignore stale handles
+            }
+        }
+        return null;
+    }
+
+    /** Read a folder handle and add it to the selection. @returns {Promise<boolean>} */
+    async _addFolderFromHandle(handle, storeId = null) {
+        const existing = await this._isAlreadyAdded(handle);
+        if (existing) {
+            this.showToast(`“${existing.name}” is already added`);
+            return true;
+        }
+
+        this.showLoading(true);
+        let files;
+        try {
+            files = await collectFilesFromDirectoryHandle(handle);
+        } catch (err) {
+            console.warn('Could not read folder:', err);
+            this.showError(`“${handle.name}” could not be opened. It may have been moved or deleted.`);
+            return false;
         } finally {
             this.showLoading(false);
         }
+
+        if (files.length === 0) {
+            this.showError(`No supported images found in “${handle.name}”.`);
+            return false;
+        }
+        this._addFolder(handle.name, files, handle, storeId);
+        return true;
     }
 
-    _addFolder(baseName, files) {
+    async handleDroppedFiles(dataTransfer) {
+        this.showLoading(true);
+        let folders = [];
+        try {
+            folders = await collectDroppedFolders(dataTransfer);
+        } catch (err) {
+            console.error('Error handling dropped files:', err);
+            this.showError('Failed to process dropped files.');
+            return;
+        } finally {
+            this.showLoading(false);
+        }
+
+        if (folders.length === 0) {
+            this.showError('No supported images found in dropped files or folders.');
+            return;
+        }
+        for (const folder of folders) {
+            if (folder.handle && await this._isAlreadyAdded(folder.handle)) {
+                this.showToast(`“${folder.name}” is already added`);
+                continue;
+            }
+            this._addFolder(folder.name, folder.files, folder.handle);
+        }
+    }
+
+    _addFolder(baseName, files, handle = null, storeId = null) {
         const name = this.selectedFolders.some(f => f.name === baseName)
             ? `${baseName} (${this.selectedFolders.length + 1})`
             : baseName;
-        this.selectedFolders.push({ name, files, selected: true });
+        this.selectedFolders.push({ name, files, selected: true, handle, storeId });
         this.renderFolders();
     }
 
@@ -375,9 +480,126 @@ export class PhotoGallery {
             }
         );
 
-        const label = this.chooseFolderLabel?.querySelector('[data-label]');
+        this.startGalleryBtn?.classList.toggle('hidden', this.selectedFolders.length === 0);
+
+        const label = this.chooseFolderBtn?.querySelector('[data-label]');
         if (label) {
             label.textContent = this.selectedFolders.length > 0 ? 'Add another folder' : 'Choose a folder';
+        }
+        this._renderRecentList();
+    }
+
+    // -------------------------------------------------------------------------
+    // Remembered folders (welcome screen)
+    // -------------------------------------------------------------------------
+
+    /** Load remembered folders and refresh the "Continue" / "Recent" UI. */
+    async renderRecent() {
+        if (!this.recentSection || !(await isFolderMemoryAvailable())) return;
+        try {
+            const [folders, session] = await Promise.all([listFolders(), getLastSession()]);
+            this.recentFolders = folders;
+            this.lastSessionFolders = session
+                .map(id => folders.find(f => f.id === id))
+                .filter(Boolean);
+        } catch (err) {
+            console.warn('Could not read remembered folders:', err);
+            return;
+        }
+        this._renderRecentList();
+    }
+
+    _renderRecentList() {
+        if (!this.recentSection) return;
+        const folders = this.recentFolders;
+        this.recentSection.classList.toggle('hidden', folders.length === 0);
+        if (folders.length === 0) return;
+
+        // Continue = reopen everything from the last visit in one click
+        const session = this.lastSessionFolders;
+        this.continueBtn.classList.toggle('hidden', session.length === 0);
+        if (session.length > 0) {
+            this.continueNames.textContent = session.map(f => f.name).join(', ');
+            const total = session.reduce((sum, f) => sum + (f.photoCount || 0), 0);
+            this.continueMeta.textContent = total ? `${total} photos` : '';
+        }
+
+        const addedIds = new Set(this.selectedFolders.map(f => f.storeId).filter(Boolean));
+        this.recentList.replaceChildren();
+        for (const folder of folders.slice(0, 6)) {
+            const added = addedIds.has(folder.id);
+
+            const row = document.createElement('div');
+            row.className = `recent-item${added ? ' is-added' : ''}`;
+
+            const open = document.createElement('button');
+            open.type = 'button';
+            open.className = 'recent-open';
+            open.title = added ? 'Remove from selection' : 'Add to selection';
+            open.innerHTML = `${icon(added ? 'check' : 'folder')}<span class="recent-name"></span><span class="recent-count"></span>`;
+            open.querySelector('.recent-name').textContent = folder.name;
+            open.querySelector('.recent-count').textContent = folder.photoCount ? `${folder.photoCount} photos` : '';
+            open.addEventListener('click', () => this.toggleRecent(folder));
+
+            const forget = document.createElement('button');
+            forget.type = 'button';
+            forget.className = 'recent-forget';
+            forget.title = 'Forget this folder';
+            forget.setAttribute('aria-label', `Forget ${folder.name}`);
+            forget.innerHTML = icon('x');
+            forget.addEventListener('click', async () => {
+                await forgetFolder(folder.id).catch(() => {});
+                this.renderRecent();
+            });
+
+            row.append(open, forget);
+            this.recentList.appendChild(row);
+        }
+    }
+
+    /** Click on a recent folder: add it to the selection (or remove it again). */
+    async toggleRecent(folder) {
+        const index = this.selectedFolders.findIndex(f => f.storeId === folder.id);
+        if (index !== -1) {
+            this.selectedFolders.splice(index, 1);
+            this.renderFolders();
+            return;
+        }
+        if (!(await ensureReadPermission(folder.handle))) {
+            this.showToast(`Access to “${folder.name}” was not allowed`);
+            return;
+        }
+        await this._addFolderFromHandle(folder.handle, folder.id);
+    }
+
+    /** Reopen the folders from the last visit and go straight to the gallery. */
+    async continueLastSession() {
+        for (const folder of this.lastSessionFolders) {
+            if (this.selectedFolders.some(f => f.storeId === folder.id)) continue;
+            // The browser may ask once per folder; each prompt needs its own click
+            if (!(await ensureReadPermission(folder.handle))) {
+                this.showToast(`Allow access to “${folder.name}” to continue`);
+                return;
+            }
+            if (!(await this._addFolderFromHandle(folder.handle, folder.id))) return;
+        }
+        if (this.selectedFolders.some(f => f.selected !== false)) this.startGallery();
+    }
+
+    /** Remember the opened folders so the next visit can offer "Continue". */
+    async _rememberOpenedFolders(folders) {
+        if (!(await isFolderMemoryAvailable())) return;
+        const withHandles = folders.filter(f => f.handle);
+        if (withHandles.length === 0) return;
+        try {
+            const ids = [];
+            for (const folder of withHandles) {
+                folder.storeId = await rememberFolder(folder.handle, folder.files.length);
+                ids.push(folder.storeId);
+            }
+            await setLastSession(ids);
+        } catch (err) {
+            console.warn('Could not remember folders:', err);
         }
     }
 
@@ -386,9 +608,8 @@ export class PhotoGallery {
     // -------------------------------------------------------------------------
 
     async startGallery() {
-        const activeFiles = this.selectedFolders
-            .filter(f => f.selected !== false)
-            .flatMap(f => f.files);
+        const activeFolders = this.selectedFolders.filter(f => f.selected !== false);
+        const activeFiles = activeFolders.flatMap(f => f.files);
 
         if (activeFiles.length === 0) return;
 
@@ -401,7 +622,8 @@ export class PhotoGallery {
             this.images = await processImages(activeFiles, new Map(), (done, total) => {
                 this.updateLoadingProgress(done, total);
             });
-            this.filteredImages = [...this.images];
+            this.filteredImages = this._computeFiltered();
+            this._rememberOpenedFolders(activeFolders);
 
             this._organizeAlbums();
             this.renderGallery();
@@ -517,14 +739,21 @@ export class PhotoGallery {
         this.applyFilters();
     }
 
-    applyFilters() {
-        this.filteredImages = applyFilters(
-            this.images,
-            this.currentAlbum,
-            this.showFavoritesOnly,
-            this.favorites,
-            this.searchQuery
+    setSort(mode) {
+        this.sortMode = SORT_MODES.includes(mode) ? mode : 'name';
+        saveSort(this.sortMode);
+        if (this.images.length > 0) this.applyFilters();
+    }
+
+    _computeFiltered() {
+        return sortImages(
+            applyFilters(this.images, this.currentAlbum, this.showFavoritesOnly, this.favorites, this.searchQuery),
+            this.sortMode
         );
+    }
+
+    applyFilters() {
+        this.filteredImages = this._computeFiltered();
 
         window.scrollTo({ top: 0, behavior: 'instant' });
         this.renderGallery();
@@ -628,16 +857,21 @@ export class PhotoGallery {
 
     showError(message) {
         console.error('Gallery Error:', message);
-        const errorDiv = document.createElement('div');
-        errorDiv.className = 'toast';
-        errorDiv.setAttribute('role', 'alert');
-        errorDiv.textContent = message;
-        document.body.appendChild(errorDiv);
+        this.showToast(message, 'alert');
+    }
+
+    showToast(message, role = 'status') {
+        document.querySelectorAll('.toast').forEach(t => t.remove());
+        const toast = document.createElement('div');
+        toast.className = 'toast';
+        toast.setAttribute('role', role);
+        toast.textContent = message;
+        document.body.appendChild(toast);
 
         setTimeout(() => {
-            errorDiv.style.opacity = '0';
-            setTimeout(() => errorDiv.remove(), 300);
-        }, 5000);
+            toast.style.opacity = '0';
+            setTimeout(() => toast.remove(), 300);
+        }, 4000);
     }
 
     /**

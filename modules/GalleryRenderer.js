@@ -117,6 +117,37 @@ export function applyFilters(images, currentAlbum, showFavoritesOnly, favorites,
 }
 
 // ---------------------------------------------------------------------------
+// Sorting
+// ---------------------------------------------------------------------------
+
+export const SORT_MODES = ['name', 'newest', 'oldest', 'largest'];
+
+const byName = (a, b) =>
+    a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }) ||
+    a.path.localeCompare(b.path);
+
+/**
+ * Return a sorted copy of the images.
+ *  - name:    natural order ("img2" before "img10")
+ *  - newest / oldest: by the file's date (last modified)
+ *  - largest: by file size
+ *
+ * @param {Array}  images
+ * @param {string} mode
+ * @returns {Array}
+ */
+export function sortImages(images, mode) {
+    const sorted = [...images];
+    switch (mode) {
+        case 'newest':  sorted.sort((a, b) => (b.lastModified - a.lastModified) || byName(a, b)); break;
+        case 'oldest':  sorted.sort((a, b) => (a.lastModified - b.lastModified) || byName(a, b)); break;
+        case 'largest': sorted.sort((a, b) => (b.size - a.size) || byName(a, b)); break;
+        default:        sorted.sort(byName);
+    }
+    return sorted;
+}
+
+// ---------------------------------------------------------------------------
 // Album selector DOM update
 // ---------------------------------------------------------------------------
 

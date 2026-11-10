@@ -10,6 +10,7 @@
 
 const FAVORITES_KEY = 'gallery-favorites';
 const THEME_KEY     = 'gallery-theme';
+const SORT_KEY      = 'gallery-sort';
 
 // ---------------------------------------------------------------------------
 // Favorites
@@ -57,6 +58,26 @@ export function toggleFavorite(favorites, imageId) {
     }
     saveFavorites(favorites);
     return favorites;
+}
+
+// ---------------------------------------------------------------------------
+// Sort preference
+// ---------------------------------------------------------------------------
+
+export function loadSort() {
+    try {
+        return localStorage.getItem(SORT_KEY);
+    } catch {
+        return null;
+    }
+}
+
+export function saveSort(mode) {
+    try {
+        localStorage.setItem(SORT_KEY, mode);
+    } catch {
+        // Storage unavailable: the choice just is not remembered
+    }
 }
 
 // ---------------------------------------------------------------------------
