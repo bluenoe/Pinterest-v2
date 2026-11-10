@@ -13,6 +13,8 @@
  * kept alive; everything else is revoked.
  */
 
+import { icon } from './icons.js';
+
 function formatFileSize(bytes) {
     if (bytes === 0) return '0 Bytes';
     const k     = 1024;
@@ -209,8 +211,8 @@ export class LightboxController {
         if (!image) return;
         const fav = this._cb.isFavorited(image.id);
         const btn = this._el.favoriteBtn;
-        btn.innerHTML = `<i class="${fav ? 'fas' : 'far'} fa-heart"></i>`;
-        btn.classList.toggle('text-red-500', fav);
+        btn.classList.toggle('is-favorited', fav);
+        btn.title = fav ? 'Remove from favorites (F)' : 'Add to favorites (F)';
         btn.setAttribute('aria-pressed', String(fav));
     }
 
@@ -248,7 +250,7 @@ export class LightboxController {
         this.isPaused = false;
         this._el.lightbox.classList.add('slideshow-mode');
         this._el.slideshowControls.classList.remove('hidden');
-        this._el.slideshowBtn.innerHTML = '<i class="fas fa-stop"></i>';
+        this._el.slideshowBtn.innerHTML = icon('stop');
         this._el.slideshowBtn.setAttribute('aria-pressed', 'true');
         this._setPlayPauseIcon();
 
@@ -267,7 +269,7 @@ export class LightboxController {
         this.isSlideshow = false;
         this.isPaused = false;
         this._el.slideshowControls.classList.add('hidden');
-        this._el.slideshowBtn.innerHTML = '<i class="fas fa-play"></i>';
+        this._el.slideshowBtn.innerHTML = icon('play');
         this._el.slideshowBtn.setAttribute('aria-pressed', 'false');
         this._el.lightbox?.classList.remove('slideshow-mode');
 
@@ -294,7 +296,7 @@ export class LightboxController {
     _setPlayPauseIcon() {
         const btn = document.getElementById('slideshowPlayPauseBtn');
         if (!btn) return;
-        btn.innerHTML = `<i class="fas ${this.isPaused ? 'fa-play' : 'fa-pause'}"></i>`;
+        btn.innerHTML = icon(this.isPaused ? 'play' : 'pause');
         btn.setAttribute('aria-label', this.isPaused ? 'Play' : 'Pause');
     }
 

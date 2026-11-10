@@ -15,7 +15,7 @@
  *  - One delegated click/keyboard handler for the whole grid.
  */
 
-import { formatFileSize } from './GalleryRenderer.js';
+import { icon } from './icons.js';
 import { thumbnailWidthFor } from './ThumbnailService.js';
 
 const MOUNT_MARGIN   = '1500px 0px 1500px 0px';
@@ -283,7 +283,6 @@ export class VirtualGrid {
         favBtn.classList.toggle('favorited', isFav);
         favBtn.title = isFav ? 'Remove from favorites' : 'Add to favorites';
         favBtn.setAttribute('aria-pressed', String(isFav));
-        favBtn.innerHTML = `<i class="${isFav ? 'fas' : 'far'} fa-heart"></i>`;
     }
 
     /** Highlight the card that the slideshow is currently showing. */
@@ -390,7 +389,7 @@ export class VirtualGrid {
         const { image, el, wrapper } = item;
         this.thumbnails.pin(image.id);
 
-        // Overlay (title + meta) — user text via textContent only
+        // Hover caption — user text via textContent only
         const overlay = document.createElement('div');
         overlay.className = 'gallery-item-overlay';
         const info = document.createElement('div');
@@ -398,25 +397,17 @@ export class VirtualGrid {
         const title = document.createElement('div');
         title.className = 'gallery-item-title';
         title.textContent = image.name;
-        const meta = document.createElement('div');
-        meta.className = 'gallery-item-meta';
-        meta.textContent = `${formatFileSize(image.size)} • ${image.width}×${image.height}`;
-        info.append(title, meta);
+        info.append(title);
         overlay.appendChild(info);
 
-        // Actions
+        // Heart (slideshow-from-here lives in the lightbox)
         const actions = document.createElement('div');
         actions.className = 'gallery-item-actions';
         const isFav = this.isFavorited(image.id);
         actions.innerHTML = `
-            <button type="button" class="gallery-action-btn slideshow-btn" title="Start slideshow from here" aria-label="Start slideshow from here">
-                <i class="fas fa-play"></i>
-            </button>
             <button type="button" class="gallery-action-btn favorite-btn ${isFav ? 'favorited' : ''}"
                     title="${isFav ? 'Remove from favorites' : 'Add to favorites'}"
-                    aria-label="Favorite" aria-pressed="${isFav}">
-                <i class="${isFav ? 'fas' : 'far'} fa-heart"></i>
-            </button>`;
+                    aria-label="Favorite" aria-pressed="${isFav}">${icon('heart')}</button>`;
 
         el.append(overlay, actions);
         el.classList.add('mounted');
@@ -516,6 +507,7 @@ export class VirtualGrid {
 
             if (!ok) {
                 wrapper.classList.add('is-broken');
+                wrapper.innerHTML = icon('image');
                 return;
             }
             wrapper.appendChild(img);

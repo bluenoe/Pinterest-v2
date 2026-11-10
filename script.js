@@ -200,6 +200,9 @@ export class PhotoGallery {
         document.getElementById('prevImage')?.addEventListener('click', () => this.lightboxController.navigate(-1));
         document.getElementById('nextImage')?.addEventListener('click', () => this.lightboxController.navigate(1));
         this.downloadBtn?.addEventListener('click', () => this.lightboxController.downloadCurrentImage());
+        document.getElementById('lightboxPlayBtn')?.addEventListener('click', () => {
+            this.lightboxController.startSlideshow(this.currentIndex);
+        });
         this.favoriteBtn?.addEventListener('click', (e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -247,6 +250,17 @@ export class PhotoGallery {
                 this.searchInput?.focus();
             }
         });
+
+        // Hairline under the top bar once the page is scrolled
+        const topbar = document.getElementById('topbar');
+        let topbarFrame = 0;
+        window.addEventListener('scroll', () => {
+            if (topbarFrame) return;
+            topbarFrame = requestAnimationFrame(() => {
+                topbarFrame = 0;
+                topbar?.classList.toggle('is-scrolled', window.scrollY > 4);
+            });
+        }, { passive: true });
 
         // Stop auto-scroll when the user takes over
         const stopOnUserScroll = (e) => {
@@ -608,14 +622,14 @@ export class PhotoGallery {
         const label = document.getElementById('loadingText');
         if (!label) return;
         label.textContent = total > 0
-            ? `Loading images... ${done}/${total}`
-            : 'Loading images...';
+            ? `Reading photos… ${done} / ${total}`
+            : 'Reading photos…';
     }
 
     showError(message) {
         console.error('Gallery Error:', message);
         const errorDiv = document.createElement('div');
-        errorDiv.className = 'fixed top-4 right-4 bg-red-500 text-white px-4 py-2 rounded-lg shadow-lg z-50 transition-opacity';
+        errorDiv.className = 'toast';
         errorDiv.setAttribute('role', 'alert');
         errorDiv.textContent = message;
         document.body.appendChild(errorDiv);

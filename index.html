@@ -4,216 +4,195 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <meta name="theme-color" content="#E60023">
-    <title>Pinterest Gallery - Photo Explorer</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#0b0b0c" media="(prefers-color-scheme: dark)">
+    <title>Gallery</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
     <link rel="stylesheet" href="dist/styles.css">
     <link rel="manifest" href="manifest.json">
 </head>
 
-<body class="bg-gray-50 dark:bg-pinterest-dark">
-    <!-- Loading Overlay -->
-    <div id="loadingOverlay" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 hidden" role="status" aria-live="polite">
-        <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl px-6 py-5 max-w-sm mx-4">
-            <div class="flex items-center gap-3">
-                <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-pinterest-red"></div>
-                <span id="loadingText" class="text-gray-700 dark:text-gray-300 tabular-nums">Loading images...</span>
-            </div>
+<body>
+    <!-- Icon sprite (thin-line icons, 24×24, stroke = currentColor) -->
+    <svg xmlns="http://www.w3.org/2000/svg" style="display:none">
+        <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+        <symbol id="i-heart" viewBox="0 0 24 24"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></symbol>
+        <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15l12.5-7.5Z"/></symbol>
+        <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></symbol>
+        <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></symbol>
+        <symbol id="i-skip-back" viewBox="0 0 24 24"><path d="M18 19 8 12l10-7Z"/><path d="M6 5v14"/></symbol>
+        <symbol id="i-skip-forward" viewBox="0 0 24 24"><path d="m6 5 10 7-10 7Z"/><path d="M18 5v14"/></symbol>
+        <symbol id="i-chevrons-down" viewBox="0 0 24 24"><path d="m7 6 5 5 5-5"/><path d="m7 13 5 5 5-5"/></symbol>
+        <symbol id="i-moon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></symbol>
+        <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></symbol>
+        <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+        <symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+        <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+        <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></symbol>
+        <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M5 20h14"/></symbol>
+        <symbol id="i-folder" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
+        <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+        <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+        <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.09-3.09a2 2 0 0 0-2.82 0L6 21"/></symbol>
+    </svg>
+
+    <!-- Loading -->
+    <div id="loadingOverlay" class="loading hidden" role="status" aria-live="polite">
+        <div class="loading-box">
+            <span class="spinner" aria-hidden="true"></span>
+            <span id="loadingText">Loading images...</span>
         </div>
     </div>
 
-    <!-- Welcome Screen -->
-    <div id="welcomeScreen"
-        class="fixed inset-0 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-pinterest-dark flex items-center justify-center z-40 overflow-y-auto p-4">
-        <div class="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl p-6 sm:p-8 w-full max-w-md text-center">
-            <div class="mb-6">
-                <i class="fas fa-camera-retro text-5xl text-pinterest-red mb-4"></i>
-                <h1 class="text-2xl sm:text-3xl font-bold text-gray-800 dark:text-white mb-2">Welcome to Photo Gallery</h1>
-                <p class="text-gray-600 dark:text-gray-300">Discover your photos in a beautiful Pinterest-style layout</p>
+    <!-- Welcome -->
+    <div id="welcomeScreen" class="welcome">
+        <div class="welcome-inner">
+            <div class="brand"><span class="brand-dot" aria-hidden="true"></span>Gallery</div>
+
+            <h1 class="welcome-title">Your photos,<br>quietly arranged.</h1>
+            <p class="welcome-sub">Open a folder and browse it as one calm, endless grid.</p>
+
+            <div id="dropZone" class="drop-zone">
+                <input type="file" id="folderInput" class="sr-only" webkitdirectory directory multiple>
+                <svg class="icon drop-icon" aria-hidden="true"><use href="#i-upload"></use></svg>
+                <p class="drop-title">Drop a folder here</p>
+                <p class="drop-or">or</p>
+                <label id="chooseFolderLabel" for="folderInput" class="btn btn-secondary">
+                    <span data-label>Choose a folder</span>
+                </label>
             </div>
 
-            <div class="space-y-4">
-                <!-- Drop zone + folder picker -->
-                <div id="dropZone" class="drop-zone">
-                    <input type="file" id="folderInput" class="sr-only" webkitdirectory directory multiple>
-                    <label id="chooseFolderLabel" for="folderInput" class="choose-folder-btn">
-                        <i class="fas fa-folder-open"></i>
-                        <span data-label>Choose a folder</span>
-                    </label>
-                    <p class="drop-zone-hint">
-                        <i class="fas fa-arrow-down-long mr-1"></i>or drag &amp; drop folders here
-                    </p>
-                </div>
+            <div id="selectedFoldersList" class="folder-list"></div>
 
-                <!-- Selected Folders List -->
-                <div id="selectedFoldersList" class="space-y-2 max-h-48 overflow-y-auto text-left"></div>
+            <button id="startGallery" class="btn btn-primary btn-block" disabled>Start Exploring</button>
 
-                <button id="startGallery"
-                    class="w-full bg-pinterest-red hover:bg-red-600 text-white font-semibold py-3 px-6 rounded-xl transition-colors duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
-                    disabled>
-                    Start Exploring
-                </button>
-            </div>
-
-            <p class="text-xs text-gray-500 dark:text-gray-400 mt-4">
-                <i class="fas fa-lock mr-1"></i>Your photos stay private - they're only processed locally in your browser
+            <p class="welcome-note">
+                <svg class="icon" aria-hidden="true"><use href="#i-lock"></use></svg>
+                Processed locally. Your photos never leave this device.
             </p>
         </div>
     </div>
 
-    <!-- Main Gallery Container -->
+    <!-- Gallery -->
     <div id="galleryContainer" class="hidden">
-        <!-- Header - Pinterest Style -->
-        <header
-            class="header-minimal sticky top-0 bg-white/80 dark:bg-gray-900/80 backdrop-blur-md z-30 border-b border-gray-200/50 dark:border-gray-800/50">
-            <div class="max-w-full mx-auto px-3 py-2">
-                <div class="flex flex-wrap md:flex-nowrap items-center gap-x-2 gap-y-2 md:gap-3">
-                    <!-- Logo -->
-                    <button onclick="location.reload()"
-                        class="flex items-center gap-1.5 hover:opacity-80 transition-opacity shrink-0 h-9 px-1" title="Home" aria-label="Home">
-                        <i class="fas fa-camera-retro text-pinterest-red text-lg"></i>
-                        <span class="font-bold text-gray-800 dark:text-white text-sm hidden sm:inline">Gallery</span>
+        <header id="topbar" class="topbar">
+            <div class="topbar-inner">
+                <button type="button" class="brand brand-btn" onclick="location.reload()" title="Home" aria-label="Home">
+                    <span class="brand-dot" aria-hidden="true"></span><span class="brand-text">Gallery</span>
+                </button>
+
+                <div class="search">
+                    <svg class="icon search-icon" aria-hidden="true"><use href="#i-search"></use></svg>
+                    <input type="search" id="searchInput" class="search-input" placeholder="Search" autocomplete="off" aria-label="Search photos">
+                    <button id="clearSearchBtn" type="button" class="search-clear hidden" title="Clear search (Esc)" aria-label="Clear search">
+                        <svg class="icon" aria-hidden="true"><use href="#i-x"></use></svg>
                     </button>
+                    <kbd class="search-kbd" aria-hidden="true">/</kbd>
+                </div>
 
-                    <!-- Search: full-width second row on phones, centred pill on larger screens -->
-                    <div class="order-last md:order-none basis-full md:basis-auto md:flex-1 min-w-0 md:max-w-2xl md:mx-auto">
-                        <div class="relative group">
-                            <input type="search" id="searchInput" placeholder="Search photos or albums" autocomplete="off"
-                                aria-label="Search photos"
-                                class="search-input w-full pl-10 pr-16 py-2 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 rounded-full border-2 border-transparent focus:bg-white dark:focus:bg-gray-700 focus:border-gray-200 dark:focus:border-gray-600 focus:shadow-lg transition-all duration-200 text-sm placeholder-gray-500 dark:placeholder-gray-400 outline-none">
-                            <i class="fas fa-search absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-pinterest-red transition-colors text-sm pointer-events-none"></i>
-                            <button id="clearSearchBtn" type="button" class="search-clear-btn hidden" title="Clear search (Esc)" aria-label="Clear search">
-                                <i class="fas fa-xmark"></i>
-                            </button>
-                            <kbd class="search-kbd hidden md:block group-focus-within:hidden" aria-hidden="true">/</kbd>
-                        </div>
+                <div class="topbar-actions">
+                    <div id="albumSelector" class="album hidden">
+                        <select id="albumSelect" class="album-select" aria-label="Album">
+                            <option value="all">All</option>
+                        </select>
                     </div>
+                    <span id="photoCount" class="photo-count"></span>
 
-                    <!-- Right group: album selector + actions -->
-                    <div class="flex items-center gap-0.5 sm:gap-1 min-w-0 ml-auto md:ml-0">
-                        <div id="albumSelector" class="hidden min-w-0 mr-1">
-                            <select id="albumSelect" aria-label="Album"
-                                class="w-full max-w-[8.5rem] md:max-w-[12rem] truncate px-3 py-1.5 text-sm bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-full border-0 focus:ring-2 focus:ring-pinterest-red cursor-pointer outline-none">
-                                <option value="all">All</option>
-                            </select>
-                        </div>
-
-                        <span id="photoCount"
-                            class="text-xs text-gray-500 dark:text-gray-400 mr-2 hidden lg:inline tabular-nums whitespace-nowrap"></span>
-
-                        <button id="favoritesToggle" class="header-icon-btn relative" title="Show favorites only" aria-label="Show favorites only" aria-pressed="false">
-                            <i class="fas fa-heart"></i>
-                        </button>
-                        <button id="slideshowBtn" class="header-icon-btn" title="Slideshow" aria-label="Slideshow" aria-pressed="false">
-                            <i class="fas fa-play"></i>
-                        </button>
-                        <button id="autoScrollBtn" class="header-icon-btn" title="Auto scroll" aria-label="Auto scroll" aria-pressed="false">
-                            <i class="fas fa-angles-down"></i>
-                        </button>
-                        <button id="darkModeToggle" class="header-icon-btn" title="Toggle theme" aria-label="Toggle theme">
-                            <span class="dark:hidden"><i class="fas fa-moon"></i></span>
-                            <span class="hidden dark:inline"><i class="fas fa-sun"></i></span>
-                        </button>
-                    </div>
+                    <button id="favoritesToggle" class="icon-btn" title="Favorites only" aria-label="Show favorites only" aria-pressed="false">
+                        <svg class="icon" aria-hidden="true"><use href="#i-heart"></use></svg>
+                    </button>
+                    <button id="slideshowBtn" class="icon-btn" title="Slideshow" aria-label="Slideshow" aria-pressed="false">
+                        <svg class="icon" aria-hidden="true"><use href="#i-play"></use></svg>
+                    </button>
+                    <button id="autoScrollBtn" class="icon-btn" title="Auto scroll" aria-label="Auto scroll" aria-pressed="false">
+                        <svg class="icon" aria-hidden="true"><use href="#i-chevrons-down"></use></svg>
+                    </button>
+                    <button id="darkModeToggle" class="icon-btn" title="Toggle theme" aria-label="Toggle theme">
+                        <svg class="icon icon-moon" aria-hidden="true"><use href="#i-moon"></use></svg>
+                        <svg class="icon icon-sun" aria-hidden="true"><use href="#i-sun"></use></svg>
+                    </button>
                 </div>
             </div>
         </header>
 
-        <!-- Gallery Grid -->
-        <main class="max-w-7xl mx-auto px-2 py-3 sm:p-4">
+        <main class="gallery-main">
             <div id="galleryGrid" class="masonry-grid"></div>
 
-            <!-- Load More Button (fallback; infinite scroll normally handles this) -->
-            <div id="loadMoreContainer" class="text-center mt-8 hidden">
-                <button id="loadMoreBtn"
-                    class="bg-pinterest-red hover:bg-red-600 text-white font-semibold py-3 px-8 rounded-lg transition-colors duration-200">
-                    Load More Photos
-                </button>
+            <div id="loadMoreContainer" class="load-more hidden">
+                <button id="loadMoreBtn" class="btn btn-secondary">Load more</button>
             </div>
 
-            <!-- No Results Message -->
-            <div id="noResults" class="text-center py-16 hidden">
-                <i class="fas fa-search text-4xl text-gray-400 mb-4"></i>
-                <h3 class="text-xl font-semibold text-gray-600 dark:text-gray-400 mb-2">No photos found</h3>
-                <p class="text-gray-500 dark:text-gray-500 mb-6">Try adjusting your search or filter criteria</p>
-                <button id="clearFiltersBtn" type="button"
-                    class="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-pinterest-red hover:bg-red-600 text-white text-sm font-semibold transition-colors">
-                    <i class="fas fa-rotate-left"></i> Clear search &amp; filters
-                </button>
+            <div id="noResults" class="empty hidden">
+                <p class="empty-title">Nothing here</p>
+                <p class="empty-sub">No photos match your search or filters.</p>
+                <button id="clearFiltersBtn" type="button" class="btn btn-secondary">Clear filters</button>
             </div>
         </main>
     </div>
 
-    <!-- Lightbox Modal -->
-    <div id="lightbox" class="fixed inset-0 bg-black/85 backdrop-blur-md flex items-center justify-center z-50 hidden"
-        role="dialog" aria-modal="true" aria-labelledby="lightboxTitle">
-        <button id="closeLightbox" class="text-white text-lg z-10" title="Close (Esc)" aria-label="Close">
-            <i class="fas fa-times"></i>
+    <!-- Lightbox -->
+    <div id="lightbox" class="hidden" role="dialog" aria-modal="true" aria-labelledby="lightboxTitle">
+        <span id="lightboxCounter" class="lb-counter"></span>
+        <button id="closeLightbox" class="lb-btn lb-close" title="Close (Esc)" aria-label="Close">
+            <svg class="icon" aria-hidden="true"><use href="#i-x"></use></svg>
         </button>
 
-        <!-- Navigation Buttons -->
-        <button id="prevImage" class="text-white text-2xl z-10" title="Previous (Left Arrow)" aria-label="Previous photo">
-            <i class="fas fa-chevron-left"></i>
+        <button id="prevImage" class="lb-nav lb-prev" title="Previous (←)" aria-label="Previous photo">
+            <svg class="icon" aria-hidden="true"><use href="#i-chevron-left"></use></svg>
         </button>
-        <button id="nextImage" class="text-white text-2xl z-10" title="Next (Right Arrow)" aria-label="Next photo">
-            <i class="fas fa-chevron-right"></i>
+        <button id="nextImage" class="lb-nav lb-next" title="Next (→)" aria-label="Next photo">
+            <svg class="icon" aria-hidden="true"><use href="#i-chevron-right"></use></svg>
         </button>
 
-        <!-- Lightbox Content Container -->
         <div class="lightbox-content-container">
             <div class="lightbox-image-container">
                 <img id="lightboxImage" class="lightbox-image" alt="" draggable="false">
             </div>
 
             <div class="lightbox-info-bar">
-                <div class="lightbox-info-row">
-                    <div class="min-w-0">
-                        <h3 id="lightboxTitle" class="font-semibold mb-1 truncate"></h3>
-                        <p class="text-sm text-gray-300 truncate">
-                            <span id="lightboxCounter" class="lightbox-counter"></span>
-                            <span id="lightboxInfo"></span>
-                        </p>
-                    </div>
-                    <div class="flex items-center gap-3 shrink-0">
-                        <button id="favoriteBtn" class="lightbox-action-btn" title="Favorite (F)" aria-label="Favorite" aria-pressed="false">
-                            <i class="far fa-heart"></i>
-                        </button>
-                        <button id="downloadBtn" class="lightbox-action-btn" title="Download (D)" aria-label="Download">
-                            <i class="fas fa-download"></i>
-                        </button>
-                    </div>
+                <div class="lb-meta">
+                    <h3 id="lightboxTitle" class="lb-title"></h3>
+                    <p id="lightboxInfo" class="lb-info"></p>
+                </div>
+                <div class="lb-actions">
+                    <button id="lightboxPlayBtn" class="lb-btn" title="Slideshow from here (Space)" aria-label="Start slideshow from this photo">
+                        <svg class="icon" aria-hidden="true"><use href="#i-play"></use></svg>
+                    </button>
+                    <button id="favoriteBtn" class="lb-btn lb-fav" title="Favorite (F)" aria-label="Favorite" aria-pressed="false">
+                        <svg class="icon" aria-hidden="true"><use href="#i-heart"></use></svg>
+                    </button>
+                    <button id="downloadBtn" class="lb-btn" title="Download (D)" aria-label="Download">
+                        <svg class="icon" aria-hidden="true"><use href="#i-download"></use></svg>
+                    </button>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Slideshow Controls -->
-    <div id="slideshowControls"
-        class="fixed left-1/2 -translate-x-1/2 bg-black/75 backdrop-blur-xl border border-white/10 text-white px-5 py-2.5 rounded-full z-[60] shadow-2xl hidden">
-        <div class="flex items-center gap-4">
-            <span id="slideshowCounter" class="text-sm tabular-nums text-white/80 min-w-[4.5rem] text-center"></span>
-            <button id="slideshowPrevBtn" class="hover:text-gray-300" aria-label="Previous photo">
-                <i class="fas fa-step-backward"></i>
-            </button>
-            <button id="slideshowPlayPauseBtn" class="hover:text-gray-300" aria-label="Pause">
-                <i class="fas fa-pause"></i>
-            </button>
-            <button id="slideshowNextBtn" class="hover:text-gray-300" aria-label="Next photo">
-                <i class="fas fa-step-forward"></i>
-            </button>
-            <div class="border-l border-white/30 pl-4">
-                <select id="slideshowInterval" class="bg-transparent text-white text-sm" aria-label="Slideshow speed">
-                    <option value="2000">2s</option>
-                    <option value="3000" selected>3s</option>
-                    <option value="5000">5s</option>
-                    <option value="7000">7s</option>
-                    <option value="10000">10s</option>
-                </select>
-            </div>
-            <button id="slideshowStopBtn" class="text-red-400 hover:text-red-300" aria-label="Stop slideshow">
-                <i class="fas fa-stop"></i>
-            </button>
-        </div>
+    <!-- Slideshow controls -->
+    <div id="slideshowControls" class="slideshow-bar hidden">
+        <span id="slideshowCounter" class="slideshow-counter"></span>
+        <button id="slideshowPrevBtn" class="lb-btn" aria-label="Previous photo">
+            <svg class="icon" aria-hidden="true"><use href="#i-skip-back"></use></svg>
+        </button>
+        <button id="slideshowPlayPauseBtn" class="lb-btn" aria-label="Pause">
+            <svg class="icon" aria-hidden="true"><use href="#i-pause"></use></svg>
+        </button>
+        <button id="slideshowNextBtn" class="lb-btn" aria-label="Next photo">
+            <svg class="icon" aria-hidden="true"><use href="#i-skip-forward"></use></svg>
+        </button>
+        <select id="slideshowInterval" class="slideshow-speed" aria-label="Slideshow speed">
+            <option value="2000">2s</option>
+            <option value="3000" selected>3s</option>
+            <option value="5000">5s</option>
+            <option value="7000">7s</option>
+            <option value="10000">10s</option>
+        </select>
+        <button id="slideshowStopBtn" class="lb-btn" aria-label="Stop slideshow">
+            <svg class="icon" aria-hidden="true"><use href="#i-stop"></use></svg>
+        </button>
     </div>
 
     <script type="module" src="script.js"></script>

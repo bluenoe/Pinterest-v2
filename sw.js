@@ -2,7 +2,7 @@
 // Network-first for app files (users always get the latest deploy when online),
 // cache fallback when offline. Cross-origin assets (CDN) use cache-first.
 
-const CACHE_NAME = 'pinterest-gallery-v4';
+const CACHE_NAME = 'pinterest-gallery-v5';
 const APP_SHELL = [
     './',
     './index.html',
@@ -15,10 +15,11 @@ const APP_SHELL = [
     './modules/VirtualGrid.js',
     './modules/ThumbnailService.js',
     './modules/ThumbnailWorker.js',
+    './modules/icons.js',
     './manifest.json'
 ];
 const CDN_ASSETS = [
-    'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css'
+    'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap'
 ];
 
 // Install: cache each asset on its own, so one failed request (e.g. CDN down)

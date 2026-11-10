@@ -1,12 +1,10 @@
+import { icon } from './icons.js';
+
 /**
  * GalleryRenderer.js
  * Single-responsibility module for all DOM rendering and filtering logic.
  *
  * Responsibilities:
- *  - XSS-safe gallery card construction (createGalleryItem).
- *  - Masonry layout via CSS columns (no JS measurement needed).
- *  - Aspect-ratio placeholder boxes to prevent layout reflow during lazy load.
- *  - Lazy-load IntersectionObserver wired to on-demand blob URL allocation.
  *  - Infinite scroll IntersectionObserver.
  *  - Filter engine: by album, by search query, by favorites.
  *  - Album selector DOM updates.
@@ -53,47 +51,6 @@ export function formatFileSize(bytes) {
 }
 
 // ---------------------------------------------------------------------------
-// Lazy-load IntersectionObserver
-// ---------------------------------------------------------------------------
-
-/**
- * Build and return a lazy-load IntersectionObserver.
- * When an <img data-file-id="…"> enters the viewport, the observer calls
- * getBlobUrl() to obtain (or create) the blob URL on demand, then loads the
- * image and reveals it.
- *
- * @param {function(string): string|null} getBlobUrl
- *        Callback that takes an imageId and returns a blob URL (or null).
- * @returns {IntersectionObserver}
- */
-export function createLazyLoadObserver(getBlobUrl) {
-    return new IntersectionObserver(entries => {
-        entries.forEach(entry => {
-            if (!entry.isIntersecting) return;
-
-            const img     = entry.target;
-            const imageId = img.dataset.fileId;
-            if (!imageId) return;
-
-            const blobUrl = getBlobUrl(imageId);
-            if (!blobUrl) return;
-
-            const tempImg   = new Image();
-            tempImg.onload  = () => {
-                img.src = blobUrl;
-                img.removeAttribute('data-file-id');
-                img.classList.remove('loading-skeleton');
-                img.classList.add('lazy-loaded');
-            };
-            tempImg.src = blobUrl;
-
-            // Stop observing regardless of success/failure
-            entry.target._lazyObserver?.unobserve(img);
-        });
-    }, { rootMargin: '200px' });
-}
-
-// ---------------------------------------------------------------------------
 // Infinite-scroll IntersectionObserver
 // ---------------------------------------------------------------------------
 
@@ -125,101 +82,6 @@ export function setupInfiniteScroll(loadMoreContainer, loadMore, hasMore, prefet
 
     observer.observe(sentinel);
     return observer;
-}
-
-// ---------------------------------------------------------------------------
-// Gallery card construction
-// ---------------------------------------------------------------------------
-
-/**
- * Build a single gallery-card DOM element for an image record.
- * All user-controlled text (filename, metadata) is set via textContent.
- * The <img> receives data-file-id so the lazy-load observer can allocate
- * a blob URL on demand rather than at construction time.
- *
- * @param {object}      image         - Image record from ImageProcessor.
- * @param {Set<string>} favorites     - Current favorites set.
- * @param {function(number): void}     onOpen       - Called with the image's
- *                                                    index in filteredImages.
- * @param {function(number): void}     onSlideshow  - Called with index.
- * @param {function(string): void}     onFavorite   - Called with imageId.
- * @param {IntersectionObserver}       lazyObserver - Observer to register img.
- * @param {function(string): number}   findIndex    - Returns filteredImages
- *                                                    index for an imageId.
- * @returns {HTMLElement}
- */
-export function createGalleryItem(
-    image, favorites, onOpen, onSlideshow, onFavorite, lazyObserver, findIndex
-) {
-    const isFavorited = favorites.has(image.id);
-    const aspectRatio = (image.height / image.width * 100).toFixed(2);
-
-    const item         = document.createElement('div');
-    item.className     = 'gallery-item';
-    item.dataset.imageId = image.id;
-
-    // Static structural HTML only — image.id is a hex hash (no user input)
-    item.innerHTML = `
-        <div class="image-wrapper" style="padding-bottom: ${aspectRatio}%;">
-            <img data-file-id="${escapeHtml(image.id)}"
-                 alt=""
-                 class="loading-skeleton lazy-image">
-        </div>
-        <div class="gallery-item-overlay">
-            <div class="gallery-item-info">
-                <div class="gallery-item-title"></div>
-                <div class="gallery-item-meta"></div>
-            </div>
-        </div>
-        <div class="gallery-item-actions">
-            <button class="gallery-action-btn slideshow-btn" title="Start slideshow from here">
-                <i class="fas fa-play"></i>
-            </button>
-            <button class="gallery-action-btn favorite-btn ${isFavorited ? 'favorited' : ''}"
-                    data-image-id="${escapeHtml(image.id)}"
-                    title="${isFavorited ? 'Remove from favorites' : 'Add to favorites'}">
-                <i class="${isFavorited ? 'fas' : 'far'} fa-heart"></i>
-            </button>
-        </div>
-    `;
-
-    // P0 FIX 1: user-controlled text always via textContent
-    item.querySelector('.gallery-item-title').textContent = image.name;
-    item.querySelector('.gallery-item-meta').textContent  =
-        `${formatFileSize(image.size)} • ${image.width}×${image.height}`;
-    item.querySelector('img').alt = image.name;
-
-    // Click → open lightbox
-    item.addEventListener('click', e => {
-        if (!e.target.closest('.gallery-action-btn')) {
-            const idx = findIndex(image.id);
-            if (idx !== -1) onOpen(idx);
-        }
-    });
-
-    // Slideshow button
-    item.querySelector('.slideshow-btn')?.addEventListener('click', e => {
-        e.stopPropagation();
-        e.preventDefault();
-        const idx = findIndex(image.id);
-        if (idx !== -1) onSlideshow(idx);
-    });
-
-    // Favorite button
-    item.querySelector('.favorite-btn')?.addEventListener('click', e => {
-        e.stopPropagation();
-        e.preventDefault();
-        onFavorite(image.id);
-    });
-
-    // P0 FIX 2: register with lazy observer; blob URL allocated on viewport entry
-    const img = item.querySelector('img');
-    if (img) {
-        img._lazyObserver = lazyObserver;
-        lazyObserver.observe(img);
-    }
-
-    return item;
 }
 
 // ---------------------------------------------------------------------------
@@ -266,7 +128,7 @@ export function applyFilters(images, currentAlbum, showFavoritesOnly, favorites,
  * @param {HTMLElement}        albumSelector  - Wrapper div to show/hide.
  */
 export function renderAlbumSelector(albums, albumSelect, albumSelector) {
-    albumSelect.innerHTML = '<option value="all">All Photos</option>';
+    albumSelect.innerHTML = '<option value="all">All photos</option>';
     for (const [name, imgs] of albums) {
         if (name === 'all') continue;
         const opt         = document.createElement('option');
@@ -346,7 +208,7 @@ export function renderSelectedFolders(
     if (selectedFolders.length > 0 && selectedCount > 0) {
         startGalleryBtn.disabled    = false;
         startGalleryBtn.textContent =
-            `Explore ${totalSelectedFiles} files from ${selectedCount} folder${selectedCount > 1 ? 's' : ''}`;
+            `Open ${totalSelectedFiles} photos${selectedCount > 1 ? ` from ${selectedCount} folders` : ''}`;
     } else {
         startGalleryBtn.disabled    = true;
         startGalleryBtn.textContent = selectedFolders.length > 0
@@ -359,12 +221,8 @@ export function renderSelectedFolders(
     if (selectedFolders.length > 1) {
         controlsHTML = `
             <div class="folder-selection-controls">
-                <button id="_selectAllBtn" class="folder-selection-btn">
-                    <i class="fas fa-check-double mr-1"></i>Select All
-                </button>
-                <button id="_deselectAllBtn" class="folder-selection-btn">
-                    <i class="fas fa-times mr-1"></i>Deselect All
-                </button>
+                <button type="button" id="_selectAllBtn" class="folder-selection-btn">Select all</button>
+                <button type="button" id="_deselectAllBtn" class="folder-selection-btn">None</button>
             </div>
         `;
     }
@@ -387,22 +245,22 @@ export function renderSelectedFolders(
         folderItem.innerHTML = `
             <div class="folder-info">
                 <div class="folder-checkbox ${isSelected ? 'checked' : ''}">
-                    ${isSelected ? '<i class="fas fa-check"></i>' : ''}
+                    ${isSelected ? icon('check') : ''}
                 </div>
-                <i class="fas fa-folder text-pinterest-red"></i>
+                ${icon('folder')}
                 <span class="folder-name"></span>
                 <span class="folder-count"></span>
             </div>
             <div class="folder-actions">
-                <button class="folder-remove-btn" title="Remove folder">
-                    <i class="fas fa-times"></i>
+                <button type="button" class="folder-remove-btn" title="Remove folder" aria-label="Remove folder">
+                    ${icon('x')}
                 </button>
             </div>
         `;
 
         // User-controlled text via textContent
         folderItem.querySelector('.folder-name').textContent  = folder.name;
-        folderItem.querySelector('.folder-count').textContent = `(${folder.files.length} files)`;
+        folderItem.querySelector('.folder-count').textContent = `${folder.files.length} photos`;
         folderItem.querySelector('.folder-remove-btn').addEventListener('click', e => {
             e.stopPropagation();
             onRemove(index);

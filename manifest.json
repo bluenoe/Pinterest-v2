@@ -5,7 +5,7 @@
   "start_url": "./",
   "display": "standalone",
   "background_color": "#ffffff",
-  "theme_color": "#E60023",
+  "theme_color": "#ffffff",
   "orientation": "portrait-primary",
   "categories": ["photo", "gallery", "entertainment"],
   "icons": [
