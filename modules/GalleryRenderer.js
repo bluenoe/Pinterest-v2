@@ -104,9 +104,10 @@ export function createLazyLoadObserver(getBlobUrl) {
  * @param {HTMLElement}  loadMoreContainer
  * @param {function()}   loadMore
  * @param {function(): boolean} hasMore   Returns true when more pages exist.
+ * @param {number} [prefetchDistance=200] How far below the viewport (px) to start loading.
  * @returns {IntersectionObserver}
  */
-export function setupInfiniteScroll(loadMoreContainer, loadMore, hasMore) {
+export function setupInfiniteScroll(loadMoreContainer, loadMore, hasMore, prefetchDistance = 200) {
     let sentinel = document.getElementById('infiniteScrollSentinel');
     if (!sentinel) {
         sentinel             = document.createElement('div');
@@ -120,7 +121,7 @@ export function setupInfiniteScroll(loadMoreContainer, loadMore, hasMore) {
         entries.forEach(entry => {
             if (entry.isIntersecting && hasMore()) loadMore();
         });
-    }, { rootMargin: '200px' });
+    }, { rootMargin: `0px 0px ${prefetchDistance}px 0px` });
 
     observer.observe(sentinel);
     return observer;

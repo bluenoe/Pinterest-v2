@@ -4,35 +4,27 @@
  *
  * Coordinates:
  *  - StorageService: theme preferences and persistent favorites.
- *  - ImageProcessor: deterministic ID generation, metadata extraction, drag-and-drop ingestion, blob URLs.
- *  - VirtualGrid: viewport-aware DOM windowing, aspect-ratio preservation, blob URL lifecycle management.
- *  - GalleryRenderer: UI component rendering, filter application, folder listing, infinite scroll.
- *  - LightboxController: modal viewer, fullscreen slideshow, touch swipe, keyboard shortcuts.
+ *  - ImageProcessor: deterministic ID generation, metadata extraction, drag-and-drop ingestion.
+ *  - ThumbnailService: off-main-thread thumbnails, placeholder colours, bounded cache.
+ *  - VirtualGrid: stable masonry layout, viewport windowing, smooth image reveal.
+ *  - GalleryRenderer: filters, header counters, folder list, infinite scroll.
+ *  - LightboxController: modal viewer, slideshow, swipe, keyboard shortcuts.
  */
 
 import {
     loadFavorites,
-    saveFavorites,
     toggleFavorite as storageToggleFavorite,
     applyInitialTheme,
-    saveTheme,
-    loadTheme
+    saveTheme
 } from './modules/StorageService.js';
 
 import {
-    generateDeterministicId,
-    getOrCreateBlobUrl,
-    revokeBlobUrl,
-    revokeAllBlobUrls,
-    loadImageMetadata,
     processImages,
     collectDroppedImageFiles,
     IMAGE_EXTENSIONS
 } from './modules/ImageProcessor.js';
 
 import {
-    escapeHtml,
-    formatFileSize,
     applyFilters,
     renderAlbumSelector,
     renderPhotoCount,
@@ -42,104 +34,90 @@ import {
 } from './modules/GalleryRenderer.js';
 
 import { VirtualGrid } from './modules/VirtualGrid.js';
+import { ThumbnailService } from './modules/ThumbnailService.js';
 import { LightboxController } from './modules/LightboxController.js';
+
+const PAGE_SIZE = 60;
+const PREFETCH_DISTANCE = 2000; // px below the viewport at which the next page is added
+const AUTO_SCROLL_PX_PER_SECOND = 60;
 
 export class PhotoGallery {
     constructor() {
-        // Master image records (raw File references; no pre-allocated blob URLs)
+        // Master image records (raw File references)
         this.images = [];
         this.filteredImages = [];
-
-        // O(1) lookup: Map<imageId, imageRecord>
-        this.imagesById = new Map();
-
-        // Active blob URL cache: Map<imageId, blobUrl>
-        this.activeBlobUrls = new Map();
-
-        // Favorites Set<string>
-        this.favorites = loadFavorites();
 
         // State & pagination
         this.currentIndex = 0;
         this.currentPage = 0;
-        this.itemsPerPage = 50;
+        this.itemsPerPage = PAGE_SIZE;
         this.currentAlbum = 'all';
         this.albums = new Map();
         this.showFavoritesOnly = false;
         this.searchQuery = '';
         this._searchDebounceTimer = null;
-
-        // Single infinite-scroll observer (replaced, never stacked)
         this.infiniteScrollObserver = null;
+        this._prefetchFrame = 0;
+
+        // Favorites Set<string>
+        this.favorites = loadFavorites();
 
         // Multi-folder model: Array<{name: string, files: File[], selected: boolean}>
         this.selectedFolders = [];
 
         // Auto-scroll state
         this.isAutoScrolling = false;
-        this.autoScrollSpeed = 1;
+        this._autoScrollLast = 0;
+        this._autoScrollCarry = 0;
 
-        // Initialize DOM elements
         this._initElements();
-
-        // Apply saved or system theme
         applyInitialTheme();
 
-        // Initialize Virtual Grid engine (Phase P2 Windowing)
+        this.thumbnails = new ThumbnailService();
+
         this.virtualGrid = new VirtualGrid({
             gridContainer: this.galleryGrid,
-            getBlobUrl: (id) => getOrCreateBlobUrl(id, this.activeBlobUrls, this.imagesById),
-            revokeBlobUrl: (id) => revokeBlobUrl(id, this.activeBlobUrls),
+            thumbnails: this.thumbnails,
             onOpenLightbox: (idx) => this.lightboxController.open(idx),
             onStartSlideshow: (idx) => this.lightboxController.startSlideshow(idx),
             onToggleFavorite: (id) => this.toggleFavorite(id),
             isFavorited: (id) => this.favorites.has(id),
-            findIndex: (id) => this.filteredImages.findIndex(img => img.id === id),
-            getActiveLightboxImageId: () => {
-                if (!this.lightboxController?.isOpen) return null;
-                const idx = this.lightboxController.getCurrentIndex();
-                return (idx >= 0 && idx < this.filteredImages.length)
-                    ? this.filteredImages[idx].id
-                    : null;
-            },
-            bufferMargin: '1000px 0px 1000px 0px'
+            findIndex: (id) => this.filteredImages.findIndex(img => img.id === id)
         });
 
-        // Initialize Lightbox Controller
         this.lightboxController = new LightboxController(
             {
                 lightbox: this.lightbox,
                 lightboxImage: this.lightboxImage,
                 lightboxTitle: this.lightboxTitle,
                 lightboxInfo: this.lightboxInfo,
+                lightboxCounter: document.getElementById('lightboxCounter'),
+                slideshowCounter: document.getElementById('slideshowCounter'),
                 favoriteBtn: this.favoriteBtn,
                 downloadBtn: this.downloadBtn,
                 slideshowControls: this.slideshowControls,
                 slideshowBtn: this.slideshowBtn,
-                slideshowIntervalSelect: this.slideshowIntervalSelect,
-                autoScrollBtn: this.autoScrollBtn
+                slideshowIntervalSelect: this.slideshowIntervalSelect
             },
             {
-                getBlobUrl: (id) => getOrCreateBlobUrl(id, this.activeBlobUrls, this.imagesById),
+                getThumbUrl: (id) => this.thumbnails.getCached(id),
                 getFilteredImages: () => this.filteredImages,
                 getCurrentIndex: () => this.currentIndex,
-                setCurrentIndex: (idx) => {
-                    this.currentIndex = idx;
-                    this.virtualGrid.setSlideshowActive(this.filteredImages[idx]?.id);
-                },
+                setCurrentIndex: (idx) => { this.currentIndex = idx; },
                 isFavorited: (id) => this.favorites.has(id),
                 onToggleFavorite: (id) => this.toggleFavorite(id),
                 onSlideshowIndexChange: () => {
-                    this.virtualGrid.setSlideshowActive(this.filteredImages[this.currentIndex]?.id);
-                }
+                    if (this.lightboxController?.isSlideshow) {
+                        this.virtualGrid.setSlideshowActive(this.filteredImages[this.currentIndex]?.id);
+                    }
+                },
+                onSlideshowStop: () => this.virtualGrid.setSlideshowActive(null)
             }
         );
 
-        // Bind event listeners
         this._initEventListeners();
-
-        // Initial favorites badge update
         renderFavoritesBadge(this.favoritesToggle, this.favorites.size);
+        this._updateToggleStates();
     }
 
     // -------------------------------------------------------------------------
@@ -149,8 +127,9 @@ export class PhotoGallery {
     _initElements() {
         // Welcome screen
         this.welcomeScreen        = document.getElementById('welcomeScreen');
+        this.dropZone             = document.getElementById('dropZone');
         this.folderInput          = document.getElementById('folderInput');
-        this.addFolderBtn         = document.getElementById('addFolderBtn');
+        this.chooseFolderLabel    = document.getElementById('chooseFolderLabel');
         this.startGalleryBtn      = document.getElementById('startGallery');
         this.selectedFoldersList  = document.getElementById('selectedFoldersList');
 
@@ -160,9 +139,11 @@ export class PhotoGallery {
         this.loadingOverlay       = document.getElementById('loadingOverlay');
         this.photoCount           = document.getElementById('photoCount');
         this.noResults            = document.getElementById('noResults');
+        this.clearFiltersBtn      = document.getElementById('clearFiltersBtn');
 
         // Search & Filters
         this.searchInput          = document.getElementById('searchInput');
+        this.clearSearchBtn       = document.getElementById('clearSearchBtn');
         this.albumSelector        = document.getElementById('albumSelector');
         this.albumSelect          = document.getElementById('albumSelect');
         this.favoritesToggle      = document.getElementById('favoritesToggle');
@@ -190,18 +171,27 @@ export class PhotoGallery {
     _initEventListeners() {
         // Welcome screen
         this.folderInput?.addEventListener('change', (e) => this.handleFolderSelection(e));
-        this.addFolderBtn?.addEventListener('click', () => this.addCurrentFolder());
         this.startGalleryBtn?.addEventListener('click', () => this.startGallery());
-
-        // Drag & Drop on welcome screen / window
         this._initDragAndDrop();
 
         // Search & Filter
         this.searchInput?.addEventListener('input', (e) => {
-            clearTimeout(this._searchDebounceTimer);
             const value = e.target.value;
+            this.clearSearchBtn?.classList.toggle('hidden', value.length === 0);
+            clearTimeout(this._searchDebounceTimer);
             this._searchDebounceTimer = setTimeout(() => this.handleSearch(value), 200);
         });
+        this.searchInput?.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                this.clearSearch();
+                this.searchInput.blur();
+            }
+        });
+        this.clearSearchBtn?.addEventListener('click', () => {
+            this.clearSearch();
+            this.searchInput?.focus();
+        });
+        this.clearFiltersBtn?.addEventListener('click', () => this.clearAllFilters());
         this.albumSelect?.addEventListener('change', (e) => this.handleAlbumChange(e.target.value));
         this.favoritesToggle?.addEventListener('click', () => this.toggleFavoritesView());
 
@@ -213,9 +203,7 @@ export class PhotoGallery {
         this.favoriteBtn?.addEventListener('click', (e) => {
             e.preventDefault();
             e.stopPropagation();
-            if (this.currentIndex >= 0 && this.currentIndex < this.filteredImages.length) {
-                this.toggleFavorite(this.filteredImages[this.currentIndex].id);
-            }
+            this.lightboxController.toggleFavorite();
         });
 
         // Slideshow controls
@@ -248,21 +236,55 @@ export class PhotoGallery {
         this.loadMoreBtn?.addEventListener('click', () => this.loadMoreImages());
 
         // Keyboard shortcuts
-        document.addEventListener('keydown', (e) => this.lightboxController.handleKeydown(e));
+        document.addEventListener('keydown', (e) => {
+            if (this.lightboxController.isOpen) {
+                this.lightboxController.handleKeydown(e);
+                return;
+            }
+            const typing = e.target.closest?.('input, textarea, select, [contenteditable="true"]');
+            if (e.key === '/' && !typing && !this.galleryContainer.classList.contains('hidden')) {
+                e.preventDefault();
+                this.searchInput?.focus();
+            }
+        });
+
+        // Stop auto-scroll when the user takes over
+        const stopOnUserScroll = (e) => {
+            if (!this.isAutoScrolling) return;
+            if (e.target.closest?.('#autoScrollBtn')) return; // the button handles itself
+            this.toggleAutoScroll(false);
+        };
+        window.addEventListener('wheel', stopOnUserScroll, { passive: true });
+        window.addEventListener('touchstart', stopOnUserScroll, { passive: true });
     }
 
     _initDragAndDrop() {
-        const preventDefaults = (e) => {
+        let depth = 0;
+        const hasFiles = (e) => Array.from(e.dataTransfer?.types || []).includes('Files');
+        const welcomeVisible = () => this.welcomeScreen && this.welcomeScreen.style.display !== 'none';
+
+        window.addEventListener('dragenter', (e) => {
+            if (!hasFiles(e)) return;
             e.preventDefault();
-            e.stopPropagation();
-        };
-
-        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-            window.addEventListener(eventName, preventDefaults, false);
+            depth++;
+            if (welcomeVisible()) this.dropZone?.classList.add('is-dragover');
         });
-
+        window.addEventListener('dragover', (e) => {
+            if (!hasFiles(e)) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = welcomeVisible() ? 'copy' : 'none';
+        });
+        window.addEventListener('dragleave', (e) => {
+            if (!hasFiles(e)) return;
+            depth = Math.max(0, depth - 1);
+            if (depth === 0) this.dropZone?.classList.remove('is-dragover');
+        });
         window.addEventListener('drop', async (e) => {
-            if (e.dataTransfer && e.dataTransfer.files.length > 0) {
+            if (!hasFiles(e)) return;
+            e.preventDefault();
+            depth = 0;
+            this.dropZone?.classList.remove('is-dragover');
+            if (welcomeVisible() && e.dataTransfer.files.length > 0) {
                 await this.handleDroppedFiles(e.dataTransfer);
             }
         });
@@ -277,28 +299,16 @@ export class PhotoGallery {
         if (files.length === 0) return;
 
         const imageFiles = files.filter(f => IMAGE_EXTENSIONS.test(f.name));
-
         if (imageFiles.length === 0) {
             this.showError('No supported images found in selected folder.');
+            this.folderInput.value = '';
             return;
         }
 
         const firstPath = imageFiles[0].webkitRelativePath || imageFiles[0].name;
         const parts = firstPath.split('/');
-        const folderName = parts.length > 1 ? parts[0] : 'Selected Folder';
-
-        this.selectedFolders.push({
-            name: folderName,
-            files: imageFiles,
-            selected: true
-        });
-
+        this._addFolder(parts.length > 1 ? parts[0] : 'Selected Folder', imageFiles);
         this.folderInput.value = '';
-        this.renderFolders();
-    }
-
-    addCurrentFolder() {
-        this.folderInput?.click();
     }
 
     async handleDroppedFiles(dataTransfer) {
@@ -306,30 +316,26 @@ export class PhotoGallery {
         try {
             const imageFiles = await collectDroppedImageFiles(dataTransfer);
             if (imageFiles.length === 0) {
-                this.showError('No supported images found in dropped files or directories.');
+                this.showError('No supported images found in dropped files or folders.');
                 return;
             }
-
             const firstPath = imageFiles[0].webkitRelativePath || imageFiles[0].name;
             const parts = firstPath.split('/');
-            const baseName = parts.length > 1 ? parts[0] : 'Dropped Files';
-            const folderName = this.selectedFolders.some(f => f.name === baseName)
-                ? `${baseName} (${this.selectedFolders.length + 1})`
-                : baseName;
-
-            this.selectedFolders.push({
-                name: folderName,
-                files: imageFiles,
-                selected: true
-            });
-
-            this.renderFolders();
+            this._addFolder(parts.length > 1 ? parts[0] : 'Dropped Files', imageFiles);
         } catch (err) {
             console.error('Error handling dropped files:', err);
             this.showError('Failed to process dropped files.');
         } finally {
             this.showLoading(false);
         }
+    }
+
+    _addFolder(baseName, files) {
+        const name = this.selectedFolders.some(f => f.name === baseName)
+            ? `${baseName} (${this.selectedFolders.length + 1})`
+            : baseName;
+        this.selectedFolders.push({ name, files, selected: true });
+        this.renderFolders();
     }
 
     renderFolders() {
@@ -354,6 +360,11 @@ export class PhotoGallery {
                 this.renderFolders();
             }
         );
+
+        const label = this.chooseFolderLabel?.querySelector('[data-label]');
+        if (label) {
+            label.textContent = this.selectedFolders.length > 0 ? 'Add another folder' : 'Choose a folder';
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -372,17 +383,13 @@ export class PhotoGallery {
         this.galleryContainer.classList.remove('hidden');
 
         try {
-            // Process images and extract metadata (with deterministic IDs)
-            this.images = await processImages(activeFiles, this.activeBlobUrls, (done, total) => {
+            this.thumbnails.clear();
+            this.images = await processImages(activeFiles, new Map(), (done, total) => {
                 this.updateLoadingProgress(done, total);
             });
-            this.imagesById = new Map(this.images.map(img => [img.id, img]));
             this.filteredImages = [...this.images];
 
-            // Organize albums
             this._organizeAlbums();
-
-            // Render virtual gallery grid
             this.renderGallery();
             this.updatePhotoCount();
         } catch (err) {
@@ -416,30 +423,41 @@ export class PhotoGallery {
     loadMoreImages() {
         const startIndex = this.currentPage * this.itemsPerPage;
         const endIndex = Math.min(startIndex + this.itemsPerPage, this.filteredImages.length);
-        const batch = this.filteredImages.slice(startIndex, endIndex);
 
-        batch.forEach((image, index) => {
-            // Staggered reveal for the very first page of items
-            const delay = this.currentPage === 0 ? index * 30 : 0;
-            this.virtualGrid.appendItem(image, delay);
-        });
-
+        for (let i = startIndex; i < endIndex; i++) {
+            this.virtualGrid.appendItem(this.filteredImages[i]);
+        }
         this.currentPage++;
 
-        // Setup infinite scroll once per render (disconnect the previous observer
-        // so filter/search changes never stack duplicate observers)
+        // One infinite-scroll observer per render (never stacked)
         if (this.currentPage === 1) {
             this.infiniteScrollObserver?.disconnect();
             this.infiniteScrollObserver = setupInfiniteScroll(
                 this.loadMoreContainer,
                 () => this.loadMoreImages(),
-                () => this.hasMoreImages()
+                () => this.hasMoreImages(),
+                PREFETCH_DISTANCE
             );
         }
 
-        // Show/hide no results notice
         this.noResults?.classList.toggle('hidden', this.filteredImages.length > 0);
         this.updatePhotoCount();
+        this._schedulePrefetchCheck();
+    }
+
+    /**
+     * IntersectionObserver only fires when visibility changes. On tall screens
+     * the sentinel can stay in range after a page is added, so check again.
+     */
+    _schedulePrefetchCheck() {
+        cancelAnimationFrame(this._prefetchFrame);
+        this._prefetchFrame = requestAnimationFrame(() => {
+            const sentinel = document.getElementById('infiniteScrollSentinel');
+            if (!sentinel || !this.hasMoreImages()) return;
+            if (sentinel.getBoundingClientRect().top < window.innerHeight + PREFETCH_DISTANCE) {
+                this.loadMoreImages();
+            }
+        });
     }
 
     hasMoreImages() {
@@ -455,6 +473,25 @@ export class PhotoGallery {
         this.applyFilters();
     }
 
+    clearSearch() {
+        clearTimeout(this._searchDebounceTimer);
+        if (this.searchInput) this.searchInput.value = '';
+        this.clearSearchBtn?.classList.add('hidden');
+        if (this.searchQuery) this.handleSearch('');
+    }
+
+    clearAllFilters() {
+        clearTimeout(this._searchDebounceTimer);
+        if (this.searchInput) this.searchInput.value = '';
+        this.clearSearchBtn?.classList.add('hidden');
+        this.searchQuery = '';
+        this.currentAlbum = 'all';
+        if (this.albumSelect) this.albumSelect.value = 'all';
+        this.showFavoritesOnly = false;
+        this._updateToggleStates();
+        this.applyFilters();
+    }
+
     handleAlbumChange(album) {
         this.currentAlbum = album;
         this.applyFilters();
@@ -462,7 +499,7 @@ export class PhotoGallery {
 
     toggleFavoritesView() {
         this.showFavoritesOnly = !this.showFavoritesOnly;
-        this.favoritesToggle?.classList.toggle('text-pinterest-red', this.showFavoritesOnly);
+        this._updateToggleStates();
         this.applyFilters();
     }
 
@@ -475,12 +512,20 @@ export class PhotoGallery {
             this.searchQuery
         );
 
+        window.scrollTo({ top: 0, behavior: 'instant' });
         this.renderGallery();
         this.updatePhotoCount();
     }
 
     updatePhotoCount() {
         renderPhotoCount(this.photoCount, this.filteredImages.length, this.favorites.size);
+    }
+
+    _updateToggleStates() {
+        this.favoritesToggle?.classList.toggle('is-active', this.showFavoritesOnly);
+        this.favoritesToggle?.setAttribute('aria-pressed', String(this.showFavoritesOnly));
+        this.autoScrollBtn?.classList.toggle('is-active', this.isAutoScrolling);
+        this.autoScrollBtn?.setAttribute('aria-pressed', String(this.isAutoScrolling));
     }
 
     // -------------------------------------------------------------------------
@@ -493,23 +538,14 @@ export class PhotoGallery {
         storageToggleFavorite(this.favorites, imageId);
         const isFav = this.favorites.has(imageId);
 
-        // Update virtual grid card if mounted
         this.virtualGrid.updateFavorite(imageId, isFav);
-
-        // Update lightbox favorite button if active
-        if (this.lightboxController.isOpen) {
-            const currentImg = this.filteredImages[this.currentIndex];
-            if (currentImg && currentImg.id === imageId) {
-                this.favoriteBtn.innerHTML = `<i class="${isFav ? 'fas' : 'far'} fa-heart"></i>`;
-                this.favoriteBtn.classList.toggle('text-red-500', isFav);
-            }
-        }
-
-        // Update header badge
+        if (this.lightboxController.isOpen) this.lightboxController.updateFavoriteIcon();
         renderFavoritesBadge(this.favoritesToggle, this.favorites.size);
+        this.updatePhotoCount();
 
-        // If in favorites-only view and removed, re-filter
-        if (this.showFavoritesOnly && !isFav) {
+        // Favorites-only view: drop the card (but not while the lightbox is
+        // showing it, otherwise the viewer's index would shift under the user)
+        if (this.showFavoritesOnly && !isFav && !this.lightboxController.isOpen) {
             this.applyFilters();
         }
     }
@@ -519,43 +555,44 @@ export class PhotoGallery {
     // -------------------------------------------------------------------------
 
     toggleDarkMode() {
-        const isDark = document.documentElement.classList.toggle('dark');
+        const root = document.documentElement;
+        root.classList.add('theme-switching');
+        const isDark = root.classList.toggle('dark');
         saveTheme(isDark ? 'dark' : 'light');
+        setTimeout(() => root.classList.remove('theme-switching'), 350);
     }
 
-    toggleAutoScroll() {
-        this.isAutoScrolling = !this.isAutoScrolling;
-
-        if (this.autoScrollBtn) {
-            this.autoScrollBtn.classList.toggle('auto-scrolling', this.isAutoScrolling);
-            this.autoScrollBtn.classList.toggle('text-pinterest-red', this.isAutoScrolling);
-        }
+    toggleAutoScroll(force) {
+        this.isAutoScrolling = typeof force === 'boolean' ? force : !this.isAutoScrolling;
+        this.autoScrollBtn?.classList.toggle('auto-scrolling', this.isAutoScrolling);
+        this._updateToggleStates();
 
         if (this.isAutoScrolling) {
-            this._autoScrollLoop();
+            this._autoScrollLast = performance.now();
+            this._autoScrollCarry = 0;
+            requestAnimationFrame((t) => this._autoScrollLoop(t));
         }
     }
 
-    _autoScrollLoop() {
+    /** Time-based so speed is the same on 60Hz and 120Hz screens. */
+    _autoScrollLoop(now) {
         if (!this.isAutoScrolling) return;
 
-        window.scrollBy(0, this.autoScrollSpeed);
-
-        const scrollHeight = document.documentElement.scrollHeight;
-        const scrollTop = window.scrollY;
-        const clientHeight = window.innerHeight;
-
-        if (scrollTop + clientHeight >= scrollHeight - 20) {
-            if (this.hasMoreImages()) {
-                this.loadMoreImages();
-            } else {
-                this.isAutoScrolling = false;
-                this.autoScrollBtn?.classList.remove('auto-scrolling', 'text-pinterest-red');
-                return;
-            }
+        const dt = Math.min(100, now - this._autoScrollLast);
+        this._autoScrollLast = now;
+        this._autoScrollCarry += (AUTO_SCROLL_PX_PER_SECOND * dt) / 1000;
+        const step = Math.floor(this._autoScrollCarry);
+        if (step > 0) {
+            this._autoScrollCarry -= step;
+            window.scrollBy(0, step);
         }
 
-        requestAnimationFrame(() => this._autoScrollLoop());
+        const atBottom = window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 4;
+        if (atBottom && !this.hasMoreImages()) {
+            this.toggleAutoScroll(false);
+            return;
+        }
+        requestAnimationFrame((t) => this._autoScrollLoop(t));
     }
 
     // -------------------------------------------------------------------------
@@ -579,6 +616,7 @@ export class PhotoGallery {
         console.error('Gallery Error:', message);
         const errorDiv = document.createElement('div');
         errorDiv.className = 'fixed top-4 right-4 bg-red-500 text-white px-4 py-2 rounded-lg shadow-lg z-50 transition-opacity';
+        errorDiv.setAttribute('role', 'alert');
         errorDiv.textContent = message;
         document.body.appendChild(errorDiv);
 
@@ -600,16 +638,18 @@ export class PhotoGallery {
             gridElements: gridStats.total,
             mountedDOMNodes: gridStats.mounted,
             virtualizedPlaceholders: gridStats.virtualized,
-            activeBlobUrls: this.activeBlobUrls.size
+            ...this.thumbnails.getStats()
         };
     }
 
     cleanup() {
         clearTimeout(this._searchDebounceTimer);
+        cancelAnimationFrame(this._prefetchFrame);
+        this.isAutoScrolling = false;
         this.infiniteScrollObserver?.disconnect();
-        revokeAllBlobUrls(this.activeBlobUrls);
         this.virtualGrid.destroy();
         this.lightboxController.destroy();
+        this.thumbnails.destroy();
     }
 }
 
@@ -622,12 +662,12 @@ document.addEventListener('DOMContentLoaded', () => {
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
         navigator.serviceWorker.register('./sw.js').catch(() => {
-            // SW registration failed, app functions offline via cache
+            // SW registration failed; the app still works online
         });
     });
 }
 
-// Clean up blob URLs and observers on unload
-window.addEventListener('beforeunload', () => {
-    window.gallery?.cleanup();
+// Release object URLs, workers and observers on unload
+window.addEventListener('pagehide', (e) => {
+    if (!e.persisted) window.gallery?.cleanup();
 });

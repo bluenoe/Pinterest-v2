@@ -2,7 +2,7 @@
 // Network-first for app files (users always get the latest deploy when online),
 // cache fallback when offline. Cross-origin assets (CDN) use cache-first.
 
-const CACHE_NAME = 'pinterest-gallery-v3';
+const CACHE_NAME = 'pinterest-gallery-v4';
 const APP_SHELL = [
     './',
     './index.html',
@@ -13,6 +13,8 @@ const APP_SHELL = [
     './modules/GalleryRenderer.js',
     './modules/LightboxController.js',
     './modules/VirtualGrid.js',
+    './modules/ThumbnailService.js',
+    './modules/ThumbnailWorker.js',
     './manifest.json'
 ];
 const CDN_ASSETS = [

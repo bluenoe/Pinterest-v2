@@ -1,31 +1,18 @@
 /**
  * LightboxController.js
- * Single-responsibility module for lightbox modal, slideshow, swipe gestures,
- * keyboard navigation, and image download.
+ * Lightbox modal, slideshow, swipe gestures, keyboard shortcuts and download.
  *
- * Responsibilities:
- *  - Open / close lightbox modal and manage body-scroll lock.
- *  - Render the correct image, title, info, and favorite state.
- *  - Slideshow: start from any index, play/pause, stop, configurable interval.
- *  - Touch swipe gestures (mobile).
- *  - Keyboard shortcuts: ArrowLeft, ArrowRight, Space, Escape, F, D.
- *  - Download current image (via on-demand blob URL).
- *  - Auto-scroll (continuous viewport scroll with rAF loop).
+ * Loading strategy (no blank / grey frames):
+ *  1. Show the grid thumbnail instantly (already decoded, sized to the original
+ *     aspect ratio so nothing jumps).
+ *  2. Decode the full-resolution file in the background, then swap it in.
+ *  3. If no thumbnail exists, keep the previous image on screen until the new
+ *     one is decoded instead of flashing an empty box.
+ *
+ * Memory: only the current, previous and next full-resolution object URLs are
+ * kept alive; everything else is revoked.
  */
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Format a byte count as a human-readable string.
- * (Duplicate of the one in GalleryRenderer — kept here to avoid a cross-module
- * dependency on a pure-utility function.  If desired, extract to a shared
- * utils.js and import from both places.)
- *
- * @param {number} bytes
- * @returns {string}
- */
 function formatFileSize(bytes) {
     if (bytes === 0) return '0 Bytes';
     const k     = 1024;
@@ -34,21 +21,17 @@ function formatFileSize(bytes) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
-// ---------------------------------------------------------------------------
-// LightboxController class
-// ---------------------------------------------------------------------------
-
 export class LightboxController {
     /**
      * @param {object} elements  - Pre-queried DOM element references.
      * @param {object} callbacks - Functions injected by the app orchestrator:
-     *   getBlobUrl(imageId)       → string|null
+     *   getThumbUrl(imageId)      → string|null (cached grid thumbnail)
      *   getFilteredImages()       → Array
      *   getCurrentIndex()         → number
      *   setCurrentIndex(n)        → void
      *   isFavorited(imageId)      → boolean
      *   onToggleFavorite(imageId) → void
-     *   onSlideshowIndexChange()  → void  (called after navigation)
+     *   onSlideshowIndexChange()  → void
      */
     constructor(elements, callbacks) {
         this._el = elements;
@@ -57,19 +40,28 @@ export class LightboxController {
         this.isOpen      = false;
         this.isClosing   = false;
         this._closeTimeout = null;
-        this.isSlideshow = false;
+
+        this.isSlideshow    = false;
+        this.isPaused       = false;
         this.slideshowTimer = null;
         this.slideshowSpeed = 3000;
 
-        this.isAutoScrolling = false;
-        this.autoScrollSpeed = 1; // px per rAF frame
+        this._fullUrls    = new Map(); // imageId -> object URL (full resolution)
+        this._renderToken = 0;
+
+        this._onResize = () => { if (this.isOpen) this._fitImage(); };
+        window.addEventListener('resize', this._onResize);
 
         this._initTouchSwipe();
         this._initBackdropClick();
     }
 
+    getCurrentIndex() {
+        return this._cb.getCurrentIndex();
+    }
+
     // -------------------------------------------------------------------------
-    // Open / close with smooth transitions
+    // Open / close
     // -------------------------------------------------------------------------
 
     open(index) {
@@ -84,27 +76,22 @@ export class LightboxController {
         this._el.lightbox.classList.remove('hidden', 'lightbox-exiting');
         document.body.style.overflow = 'hidden';
 
-        // Force browser layout reflow before triggering CSS transition
+        this._render();
+
+        // Force reflow before triggering the CSS transition
         void this._el.lightbox.offsetHeight;
         this._el.lightbox.classList.add('lightbox-active');
-
-        this._render();
     }
 
     close() {
         if (!this.isOpen || this.isClosing) return;
 
         this.isClosing = true;
+        if (this.isSlideshow) this.stopSlideshow();
+
         this._el.lightbox.classList.remove('lightbox-active');
         this._el.lightbox.classList.add('lightbox-exiting');
 
-        const container = document.querySelector('.lightbox-content-container');
-        container?.classList.remove('slideshow-mode');
-        this._el.lightbox.classList.remove('slideshow-mode');
-
-        if (this.isSlideshow) this.stopSlideshow();
-
-        // 200ms graceful exit animation matching CSS transitions
         this._closeTimeout = setTimeout(() => {
             this.isOpen = false;
             this.isClosing = false;
@@ -112,59 +99,119 @@ export class LightboxController {
             this._el.lightbox.classList.remove('lightbox-exiting');
             this._el.lightbox.classList.add('hidden');
             document.body.style.overflow = '';
+            this._el.lightboxImage.removeAttribute('src');
+            this._releaseFullUrls(new Set());
         }, 200);
     }
 
     // -------------------------------------------------------------------------
-    // Image rendering
+    // Rendering
     // -------------------------------------------------------------------------
 
-    /**
-     * Refresh the lightbox to show the image at the current index.
-     * P0 FIX 1: title/info via textContent.
-     * P0 FIX 2: blob URL obtained on demand via getBlobUrl().
-     */
+    _fullUrl(image) {
+        let url = this._fullUrls.get(image.id);
+        if (!url) {
+            url = URL.createObjectURL(image.file);
+            this._fullUrls.set(image.id, url);
+        }
+        return url;
+    }
+
+    _releaseFullUrls(keepIds) {
+        for (const [id, url] of this._fullUrls) {
+            if (!keepIds.has(id)) {
+                URL.revokeObjectURL(url);
+                this._fullUrls.delete(id);
+            }
+        }
+    }
+
+    /** Size the <img> box to the photo's real aspect ratio within the stage. */
+    _fitImage() {
+        const images = this._cb.getFilteredImages();
+        const image  = images[this._cb.getCurrentIndex()];
+        const stage  = this._el.lightboxImage.parentElement;
+        if (!image || !stage) return;
+
+        const maxW = stage.clientWidth;
+        const maxH = stage.clientHeight;
+        if (!maxW || !maxH) return;
+
+        // Never upscale in normal view; fill the screen in slideshow mode
+        const limit = this.isSlideshow ? Infinity : 1;
+        const scale = Math.min(maxW / image.width, maxH / image.height, limit);
+        this._el.lightboxImage.style.width  = `${Math.round(image.width * scale)}px`;
+        this._el.lightboxImage.style.height = `${Math.round(image.height * scale)}px`;
+    }
+
     _render() {
         const images = this._cb.getFilteredImages();
         const index  = this._cb.getCurrentIndex();
         if (index < 0 || index >= images.length) return;
 
-        const image  = images[index];
-        const { lightboxImage, lightboxTitle, lightboxInfo, favoriteBtn } = this._el;
+        const image = images[index];
+        const token = ++this._renderToken;
+        const { lightboxImage, lightboxTitle, lightboxInfo } = this._el;
 
-        // Loading state
-        lightboxImage.classList.add('loading');
-        lightboxImage.style.opacity = '0.5';
-
-        // P0 FIX 2: on-demand blob URL
-        const blobUrl = this._cb.getBlobUrl(image.id);
-
-        const preload   = new Image();
-        preload.onload  = () => {
-            lightboxImage.src = blobUrl;
-            lightboxImage.classList.remove('loading');
-            lightboxImage.style.opacity = '1';
-        };
-        preload.onerror = () => {
-            lightboxImage.classList.remove('loading');
-            lightboxImage.style.opacity = '1';
-        };
-        preload.src = blobUrl;
-
-        // P0 FIX 1: textContent only for user-supplied strings
+        // Text (user-supplied strings via textContent only)
         lightboxTitle.textContent = image.name;
         lightboxInfo.textContent  =
             `${formatFileSize(image.size)} • ${image.width}×${image.height} • ${image.album}`;
+        const counter = `${index + 1} / ${images.length}`;
+        if (this._el.lightboxCounter)  this._el.lightboxCounter.textContent  = counter;
+        if (this._el.slideshowCounter) this._el.slideshowCounter.textContent = counter;
+        lightboxImage.alt = image.name;
+        this.updateFavoriteIcon();
 
-        // Favorite button — icon-only innerHTML is safe (no user data)
-        const fav = this._cb.isFavorited(image.id);
-        favoriteBtn.innerHTML = `<i class="${fav ? 'fas' : 'far'} fa-heart"></i>`;
-        favoriteBtn.classList.toggle('text-red-500', fav);
+        // Step 1: instant thumbnail (if the grid already made one)
+        const thumb = this._cb.getThumbUrl?.(image.id);
+        if (thumb) {
+            lightboxImage.src = thumb;
+            this._fitImage();
+        }
 
-        // Slideshow active gallery-item highlight
-        document.querySelectorAll('.gallery-item').forEach((el, i) => {
-            el.classList.toggle('slideshow-active', this.isSlideshow && i === index);
+        // Step 2: decode the full-resolution image, then swap
+        const full = this._fullUrl(image);
+        const loader = new Image();
+        loader.decoding = 'async';
+        loader.src = full;
+        const swap = () => {
+            if (token !== this._renderToken || !this.isOpen) return;
+            lightboxImage.src = full;
+            this._fitImage();
+        };
+        loader.decode().then(swap, () => {
+            if (loader.complete && loader.naturalWidth > 0) swap();
+            else {
+                loader.onload = swap;
+                loader.onerror = swap; // shows the browser's broken-image state
+            }
         });
+
+        // Warm up neighbours so next/prev feel instant
+        const keep = new Set([image.id]);
+        if (images.length > 1) {
+            for (const n of [index + 1, index - 1]) {
+                const neighbour = images[(n + images.length) % images.length];
+                keep.add(neighbour.id);
+                const pre = new Image();
+                pre.decoding = 'async';
+                pre.src = this._fullUrl(neighbour);
+                pre.decode().catch(() => {});
+            }
+        }
+        this._releaseFullUrls(keep);
+    }
+
+    updateFavoriteIcon() {
+        const images = this._cb.getFilteredImages();
+        const image  = images[this._cb.getCurrentIndex()];
+        if (!image) return;
+        const fav = this._cb.isFavorited(image.id);
+        const btn = this._el.favoriteBtn;
+        btn.innerHTML = `<i class="${fav ? 'fas' : 'far'} fa-heart"></i>`;
+        btn.classList.toggle('text-red-500', fav);
+        btn.setAttribute('aria-pressed', String(fav));
     }
 
     // -------------------------------------------------------------------------
@@ -173,13 +220,18 @@ export class LightboxController {
 
     navigate(direction) {
         const images = this._cb.getFilteredImages();
-        let idx      = this._cb.getCurrentIndex() + direction;
+        if (images.length === 0) return;
+        let idx = this._cb.getCurrentIndex() + direction;
 
-        if (idx < 0)               idx = images.length - 1;
+        if (idx < 0) idx = images.length - 1;
         else if (idx >= images.length) idx = 0;
 
         this._cb.setCurrentIndex(idx);
         this._render();
+        this._cb.onSlideshowIndexChange?.();
+
+        // Manual navigation restarts the countdown
+        if (this.isSlideshow && !this.isPaused) this._restartTimer();
     }
 
     // -------------------------------------------------------------------------
@@ -187,10 +239,18 @@ export class LightboxController {
     // -------------------------------------------------------------------------
 
     startSlideshow(startIndex = 0) {
-        const images     = this._cb.getFilteredImages();
+        const images = this._cb.getFilteredImages();
         if (images.length === 0) return;
 
         const validIndex = Math.max(0, Math.min(startIndex, images.length - 1));
+
+        this.isSlideshow = true;
+        this.isPaused = false;
+        this._el.lightbox.classList.add('slideshow-mode');
+        this._el.slideshowControls.classList.remove('hidden');
+        this._el.slideshowBtn.innerHTML = '<i class="fas fa-stop"></i>';
+        this._el.slideshowBtn.setAttribute('aria-pressed', 'true');
+        this._setPlayPauseIcon();
 
         if (!this.isOpen) {
             this.open(validIndex);
@@ -198,50 +258,50 @@ export class LightboxController {
             this._cb.setCurrentIndex(validIndex);
             this._render();
         }
-
-        this.isSlideshow = true;
-        this._el.slideshowControls.classList.remove('hidden');
-        this._el.slideshowBtn.innerHTML = '<i class="fas fa-stop"></i>';
-
-        document.querySelector('.lightbox-content-container')?.classList.add('slideshow-mode');
-        this._el.lightbox.classList.add('slideshow-mode');
-
+        this._fitImage();
+        this._cb.onSlideshowIndexChange?.();
         this._restartTimer();
-        document.getElementById('slideshowPlayPauseBtn').innerHTML = '<i class="fas fa-pause"></i>';
     }
 
     stopSlideshow() {
         this.isSlideshow = false;
+        this.isPaused = false;
         this._el.slideshowControls.classList.add('hidden');
         this._el.slideshowBtn.innerHTML = '<i class="fas fa-play"></i>';
-
-        document.querySelector('.lightbox-content-container')?.classList.remove('slideshow-mode');
+        this._el.slideshowBtn.setAttribute('aria-pressed', 'false');
         this._el.lightbox?.classList.remove('slideshow-mode');
 
         if (this.slideshowTimer) {
             clearInterval(this.slideshowTimer);
             this.slideshowTimer = null;
         }
-
-        document.querySelectorAll('.slideshow-active').forEach(el => {
-            el.classList.remove('slideshow-active');
-        });
+        this._cb.onSlideshowStop?.();
+        if (this.isOpen) this._fitImage();
     }
 
-    togglePlayPause() {
-        if (this.slideshowTimer) {
+    toggleSlideshowPlayPause() {
+        if (!this.isSlideshow) return;
+        this.isPaused = !this.isPaused;
+        if (this.isPaused) {
             clearInterval(this.slideshowTimer);
             this.slideshowTimer = null;
-            document.getElementById('slideshowPlayPauseBtn').innerHTML = '<i class="fas fa-play"></i>';
         } else {
             this._restartTimer();
-            document.getElementById('slideshowPlayPauseBtn').innerHTML = '<i class="fas fa-pause"></i>';
         }
+        this._setPlayPauseIcon();
     }
 
-    setSpeed(ms) {
+    _setPlayPauseIcon() {
+        const btn = document.getElementById('slideshowPlayPauseBtn');
+        if (!btn) return;
+        btn.innerHTML = `<i class="fas ${this.isPaused ? 'fa-play' : 'fa-pause'}"></i>`;
+        btn.setAttribute('aria-label', this.isPaused ? 'Play' : 'Pause');
+    }
+
+    setSlideshowSpeed(ms) {
+        if (!Number.isFinite(ms) || ms <= 0) return;
         this.slideshowSpeed = ms;
-        if (this.isSlideshow) this._restartTimer();
+        if (this.isSlideshow && !this.isPaused) this._restartTimer();
     }
 
     _restartTimer() {
@@ -250,40 +310,28 @@ export class LightboxController {
     }
 
     // -------------------------------------------------------------------------
-    // Favorite toggle (delegated to orchestrator callback)
+    // Favorite & download
     // -------------------------------------------------------------------------
 
     toggleFavorite() {
         const images = this._cb.getFilteredImages();
-        const index  = this._cb.getCurrentIndex();
-        if (index < 0 || index >= images.length) return;
-
-        const image = images[index];
+        const image  = images[this._cb.getCurrentIndex()];
         if (!image?.id) return;
-
         this._cb.onToggleFavorite(image.id);
-        this._render(); // Refresh the heart icon
+        this.updateFavoriteIcon();
     }
 
-    // -------------------------------------------------------------------------
-    // Download
-    // -------------------------------------------------------------------------
+    downloadCurrentImage() {
+        const images = this._cb.getFilteredImages();
+        const image  = images[this._cb.getCurrentIndex()];
+        if (!image) return;
 
-    downloadImage() {
-        const images  = this._cb.getFilteredImages();
-        const index   = this._cb.getCurrentIndex();
-        if (index < 0 || index >= images.length) return;
-
-        const image   = images[index];
-        const blobUrl = this._cb.getBlobUrl(image.id);
-        if (!blobUrl) return;
-
-        const link      = document.createElement('a');
-        link.href       = blobUrl;
-        link.download   = image.name; // attribute value — safe
+        const link    = document.createElement('a');
+        link.href     = this._fullUrl(image);
+        link.download = image.name;
         document.body.appendChild(link);
         link.click();
-        document.body.removeChild(link);
+        link.remove();
     }
 
     // -------------------------------------------------------------------------
@@ -307,7 +355,8 @@ export class LightboxController {
                 break;
             case ' ':
                 event.preventDefault();
-                this.isSlideshow ? this.togglePlayPause() : this.startSlideshow();
+                if (this.isSlideshow) this.toggleSlideshowPlayPause();
+                else this.startSlideshow(this._cb.getCurrentIndex());
                 break;
             case 'f': case 'F':
                 event.preventDefault();
@@ -315,7 +364,7 @@ export class LightboxController {
                 break;
             case 'd': case 'D':
                 event.preventDefault();
-                this.downloadImage();
+                this.downloadCurrentImage();
                 break;
         }
     }
@@ -326,88 +375,50 @@ export class LightboxController {
 
     _initTouchSwipe() {
         let startX = 0;
+        let startY = 0;
+        let tracking = false;
         const MIN_SWIPE = 50;
 
         this._el.lightbox.addEventListener('touchstart', e => {
-            startX = e.changedTouches[0].screenX;
+            if (e.touches.length !== 1) { tracking = false; return; }
+            tracking = true;
+            startX = e.touches[0].clientX;
+            startY = e.touches[0].clientY;
         }, { passive: true });
 
         this._el.lightbox.addEventListener('touchend', e => {
-            const delta = e.changedTouches[0].screenX - startX;
-            if (Math.abs(delta) > MIN_SWIPE) {
-                this.navigate(delta > 0 ? -1 : 1);
+            if (!tracking) return;
+            tracking = false;
+            const dx = e.changedTouches[0].clientX - startX;
+            const dy = e.changedTouches[0].clientY - startY;
+            // Horizontal swipe only (ignore vertical scrolls / pinch)
+            if (Math.abs(dx) > MIN_SWIPE && Math.abs(dx) > Math.abs(dy) * 1.5) {
+                this.navigate(dx > 0 ? -1 : 1);
             }
         }, { passive: true });
     }
 
     // -------------------------------------------------------------------------
-    // Auto-scroll (continuous viewport scroll)
-    // -------------------------------------------------------------------------
-
-    toggleAutoScroll(autoScrollBtn, getCurrentPage, itemsPerPage, getFilteredImages) {
-        this.isAutoScrolling = !this.isAutoScrolling;
-
-        autoScrollBtn?.classList.toggle('auto-scrolling', this.isAutoScrolling);
-        autoScrollBtn?.classList.toggle('text-pinterest-red', this.isAutoScrolling);
-
-        if (this.isAutoScrolling) {
-            this._autoScrollLoop(autoScrollBtn, getCurrentPage, itemsPerPage, getFilteredImages);
-        }
-    }
-
-    _autoScrollLoop(autoScrollBtn, getCurrentPage, itemsPerPage, getFilteredImages) {
-        if (!this.isAutoScrolling) return;
-
-        window.scrollBy(0, this.autoScrollSpeed);
-
-        const { scrollHeight } = document.documentElement;
-        const { scrollY, innerHeight } = window;
-
-        if (scrollY + innerHeight >= scrollHeight - 10) {
-            const hasMore = getCurrentPage() * itemsPerPage < getFilteredImages().length;
-            if (!hasMore) {
-                this.isAutoScrolling = false;
-                autoScrollBtn?.classList.remove('auto-scrolling', 'text-pinterest-red');
-                return;
-            }
-        }
-
-        requestAnimationFrame(() =>
-            this._autoScrollLoop(autoScrollBtn, getCurrentPage, itemsPerPage, getFilteredImages)
-        );
-    }
-
-    // -------------------------------------------------------------------------
-    // Backdrop Click Dismissal (Task 1)
+    // Backdrop click
     // -------------------------------------------------------------------------
 
     _initBackdropClick() {
         this._el.lightbox?.addEventListener('click', (e) => {
             if (!this.isOpen || this.isClosing) return;
-
-            // Target validation: Close ONLY if the click was directly on the
-            // backdrop container or the empty space around the image.
-            // Exclude clicks on interactive elements: image, info bar, action buttons, nav arrows, controls.
             const isInteractive = e.target.closest(
                 '#lightboxImage, .lightbox-info-bar, #prevImage, #nextImage, #closeLightbox, #slideshowControls, button, a, select, input'
             );
-
-            if (!isInteractive) {
-                this.close();
-            }
+            if (!isInteractive) this.close();
         });
     }
 
     destroy() {
-        if (this._closeTimeout) {
-            clearTimeout(this._closeTimeout);
-            this._closeTimeout = null;
-        }
-        if (this.slideshowTimer) {
-            clearInterval(this.slideshowTimer);
-            this.slideshowTimer = null;
-        }
-        this.isAutoScrolling = false;
+        if (this._closeTimeout) clearTimeout(this._closeTimeout);
+        if (this.slideshowTimer) clearInterval(this.slideshowTimer);
+        this._closeTimeout = null;
+        this.slideshowTimer = null;
+        window.removeEventListener('resize', this._onResize);
+        this._releaseFullUrls(new Set());
         document.body.style.overflow = '';
     }
 }

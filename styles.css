@@ -1,8 +1,9 @@
 /* Custom Pinterest-style Gallery Styles */
 
-/* Minimal Header Styles */
+/* ===== Header ===== */
 .header-minimal {
-    transition: all 0.2s ease;
+    transition: background-color 0.2s ease, border-color 0.2s ease;
+    padding-top: env(safe-area-inset-top);
 }
 
 .header-icon-btn {
@@ -16,8 +17,9 @@
     background: transparent;
     border: none;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: background-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
     font-size: 14px;
+    flex-shrink: 0;
 }
 
 .header-icon-btn:hover {
@@ -34,9 +36,21 @@
     color: #fff;
 }
 
-.header-icon-btn.text-pinterest-red,
 .header-icon-btn:active {
-    color: #E60023;
+    transform: scale(0.92);
+}
+
+/* Toggle buttons that are switched on (favorites-only, auto-scroll) */
+.header-icon-btn.is-active,
+.dark .header-icon-btn.is-active {
+    background: #E60023;
+    color: #fff;
+}
+
+.header-icon-btn.is-active:hover,
+.dark .header-icon-btn.is-active:hover {
+    background: #c50020;
+    color: #fff;
 }
 
 /* Favorites badge positioning for new header */
@@ -46,98 +60,229 @@
     width: 18px;
     height: 18px;
     font-size: 10px;
+    border: 2px solid #fff;
+}
+
+.dark .header-icon-btn .favorites-badge {
+    border-color: #111827;
 }
 
 /* Auto scroll button animation */
-.header-icon-btn.auto-scrolling {
+.header-icon-btn.auto-scrolling i {
     animation: pulse-scroll 1s ease-in-out infinite;
 }
 
 @keyframes pulse-scroll {
-    0%, 100% { transform: scale(1); }
-    50% { transform: scale(1.1); }
+    0%, 100% { transform: translateY(-1px); }
+    50% { transform: translateY(2px); }
 }
 
-/* Masonry Grid Layout */
+/* ===== Search ===== */
+.search-input::-webkit-search-cancel-button,
+.search-input::-webkit-search-decoration {
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+.search-clear-btn {
+    position: absolute;
+    right: 0.5rem;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: 9999px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #6b7280;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-size: 0.875rem;
+}
+
+.search-clear-btn:hover {
+    background: rgba(0, 0, 0, 0.08);
+    color: #111827;
+}
+
+.dark .search-clear-btn {
+    color: #9ca3af;
+}
+
+.dark .search-clear-btn:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+}
+
+.search-clear-btn.hidden {
+    display: none;
+}
+
+.search-kbd {
+    position: absolute;
+    right: 0.75rem;
+    top: 50%;
+    transform: translateY(-50%);
+    font: 600 0.7rem/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #6b7280;
+    border: 1px solid #d1d5db;
+    border-bottom-width: 2px;
+    border-radius: 0.375rem;
+    padding: 0.2rem 0.4rem;
+    pointer-events: none;
+}
+
+.dark .search-kbd {
+    color: #9ca3af;
+    border-color: #4b5563;
+}
+
+#searchInput:not(:placeholder-shown) ~ .search-kbd {
+    display: none;
+}
+
+/* ===== Masonry Grid (stable "shortest column" layout, built by VirtualGrid.js) ===== */
 .masonry-grid {
-    column-count: 1;
-    column-gap: 1rem;
+    --grid-gap: 16px;
+    display: flex;
+    align-items: flex-start;
+    gap: var(--grid-gap);
     margin: 0;
     padding: 0;
+    /* VirtualGrid restores the scroll position itself; the browser's own
+       scroll anchoring would fight it when columns are rebuilt */
+    overflow-anchor: none;
 }
 
-@media (min-width: 640px) {
-    .masonry-grid { column-count: 2; }
+.masonry-col {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--grid-gap);
 }
 
-@media (min-width: 768px) {
-    .masonry-grid { column-count: 3; }
-}
-
-@media (min-width: 1024px) {
-    .masonry-grid { column-count: 4; }
-}
-
-@media (min-width: 1280px) {
-    .masonry-grid { column-count: 5; }
-}
-
-@media (min-width: 1536px) {
-    .masonry-grid { column-count: 6; }
-}
-
-/* Gallery Item Styles */
+/* ===== Gallery Card ===== */
 .gallery-item {
-    break-inside: avoid;
-    margin-bottom: 1rem;
-    background: white;
+    position: relative;
+    background: transparent;
     border-radius: 1rem;
     overflow: hidden;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
-    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1);
     cursor: pointer;
+    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    -webkit-tap-highlight-color: transparent;
+    /* Isolate each card so hover effects never repaint the rest of the grid */
+    contain: layout paint style;
+}
+
+@media (max-width: 767px) {
+    .gallery-item {
+        border-radius: 0.75rem;
+    }
+}
+
+.gallery-item:focus-visible {
+    outline: 3px solid #E60023;
+    outline-offset: 2px;
+}
+
+/* Placeholder: soft tint per photo (its average colour once known) — never grey/black */
+.image-wrapper {
+    --ph-h: 20;
     position: relative;
-    opacity: 0;
-    transform: translateY(20px);
-    animation: fadeInUp 0.6s ease forwards;
+    width: 100%;
+    overflow: hidden;
+    background-color: hsl(var(--ph-h) 45% 91%);
+    transition: background-color 0.4s ease;
 }
 
-.gallery-item:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 16px 32px -6px rgba(0, 0, 0, 0.14), 0 6px 12px -2px rgba(0, 0, 0, 0.08);
+.dark .image-wrapper {
+    background-color: hsl(var(--ph-h) 22% 20%);
 }
 
-.dark .gallery-item {
-    background: #1f2937;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
+.image-wrapper[data-color],
+.dark .image-wrapper[data-color] {
+    background-color: var(--ph-color);
 }
 
-.dark .gallery-item:hover {
-    box-shadow: 0 16px 32px -6px rgba(0, 0, 0, 0.45), 0 6px 12px -2px rgba(0, 0, 0, 0.3);
+/* Gentle shimmer only while a thumbnail is actually being prepared */
+.image-wrapper.is-loading::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+        100deg,
+        rgba(255, 255, 255, 0) 20%,
+        rgba(255, 255, 255, 0.35) 50%,
+        rgba(255, 255, 255, 0) 80%
+    );
+    transform: translateX(-100%);
+    animation: skeleton-shimmer 1.4s infinite ease-in-out;
+    pointer-events: none;
 }
 
-/* Gallery Image Styles with Smooth Scale Micro-Interaction */
-.gallery-item img,
-.gallery-item .lazy-image {
+.dark .image-wrapper.is-loading::after {
+    background: linear-gradient(
+        100deg,
+        rgba(255, 255, 255, 0) 20%,
+        rgba(255, 255, 255, 0.07) 50%,
+        rgba(255, 255, 255, 0) 80%
+    );
+}
+
+@keyframes skeleton-shimmer {
+    100% {
+        transform: translateX(100%);
+    }
+}
+
+/* Unreadable / corrupt file */
+.image-wrapper.is-broken::before {
+    content: '\f03e';
+    font-family: 'Font Awesome 6 Free';
+    font-weight: 400;
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.75rem;
+    color: rgba(0, 0, 0, 0.3);
+}
+
+.dark .image-wrapper.is-broken::before {
+    color: rgba(255, 255, 255, 0.3);
+}
+
+/* Image fades in only after it is fully decoded */
+.lazy-image {
+    position: absolute;
+    inset: 0;
     width: 100%;
     height: 100%;
     display: block;
     object-fit: cover;
-    transform: scale(1);
-    transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease;
-    will-change: transform;
+    opacity: 0;
+    transition: opacity 0.4s ease-out, transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+    -webkit-user-drag: none;
+    user-select: none;
 }
 
-.gallery-item:hover img,
-.gallery-item:hover .lazy-image {
-    transform: scale(1.05);
+.lazy-image.lazy-loaded {
+    opacity: 1;
 }
 
-/* Gallery Item Overlay with refined dark gradient */
+.lazy-image.no-fade {
+    transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Overlay (title + meta) */
 .gallery-item-overlay {
     position: absolute;
     inset: 0;
-    background: linear-gradient(to top, rgba(0, 0, 0, 0.78) 0%, rgba(0, 0, 0, 0.32) 45%, transparent 80%);
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.72) 0%, rgba(0, 0, 0, 0.25) 40%, transparent 70%);
     opacity: 0;
     transition: opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1);
     display: flex;
@@ -147,14 +292,9 @@
     pointer-events: none;
 }
 
-.gallery-item:hover .gallery-item-overlay {
-    opacity: 1;
-}
-
-/* Gallery Item Info */
 .gallery-item-info {
     color: white;
-    z-index: 10;
+    min-width: 0;
 }
 
 .gallery-item-title {
@@ -171,7 +311,7 @@
     opacity: 0.85;
 }
 
-/* Gallery Item Actions with Smooth Fade & Float Effect */
+/* Action buttons */
 .gallery-item-actions {
     position: absolute;
     top: 0.75rem;
@@ -181,34 +321,21 @@
     opacity: 0;
     transform: translateY(-4px);
     transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-    pointer-events: auto;
-}
-
-.gallery-item:hover .gallery-item-actions {
-    opacity: 1;
-    transform: translateY(0);
 }
 
 .gallery-action-btn {
     width: 2.25rem;
     height: 2.25rem;
     border-radius: 50%;
-    background: rgba(255, 255, 255, 0.85);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
+    background: rgba(255, 255, 255, 0.9);
+    color: #111827;
     border: 1px solid rgba(255, 255, 255, 0.4);
     box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12);
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.gallery-action-btn:hover {
-    background: white;
-    transform: scale(1.12);
-    box-shadow: 0 6px 14px rgba(0, 0, 0, 0.18);
+    transition: background-color 0.2s ease, color 0.2s ease, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .gallery-action-btn.favorited {
@@ -216,459 +343,91 @@
     color: white;
 }
 
-.gallery-action-btn.favorited:hover {
-    background: #c50020;
+.gallery-action-btn.slideshow-btn i {
+    font-size: 0.75rem;
 }
 
-/* Animations */
-@keyframes fadeInUp {
-    to {
+/* Hover effects only on devices that really hover (mouse / trackpad) */
+@media (hover: hover) and (pointer: fine) {
+    .gallery-item:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 16px 32px -8px rgba(0, 0, 0, 0.22);
+    }
+
+    .dark .gallery-item:hover {
+        box-shadow: 0 16px 32px -8px rgba(0, 0, 0, 0.6);
+    }
+
+    .gallery-item:hover .lazy-image {
+        transform: scale(1.04);
+    }
+
+    .gallery-item:hover .gallery-item-overlay,
+    .gallery-item:focus-within .gallery-item-overlay {
+        opacity: 1;
+    }
+
+    .gallery-item:hover .gallery-item-actions,
+    .gallery-item:focus-within .gallery-item-actions {
         opacity: 1;
         transform: translateY(0);
     }
-}
 
-/* Staggered animation delay for grid items */
-.gallery-item:nth-child(1) { animation-delay: 0.1s; }
-.gallery-item:nth-child(2) { animation-delay: 0.2s; }
-.gallery-item:nth-child(3) { animation-delay: 0.3s; }
-.gallery-item:nth-child(4) { animation-delay: 0.4s; }
-.gallery-item:nth-child(5) { animation-delay: 0.5s; }
-.gallery-item:nth-child(6) { animation-delay: 0.6s; }
-
-/* Lightbox Modal Transitions (Task 2.1) */
-#lightbox {
-    opacity: 0;
-    transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), backdrop-filter 0.2s ease;
-    pointer-events: none;
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-}
-
-#lightbox:not(.hidden) {
-    pointer-events: auto;
-}
-
-#lightbox.lightbox-active {
-    opacity: 1;
-}
-
-#lightbox.lightbox-exiting {
-    opacity: 0;
-    pointer-events: none;
-}
-
-/* Glassmorphic Lightbox Navigation Buttons */
-#lightbox #prevImage,
-#lightbox #nextImage {
-    position: fixed !important;
-    top: 50% !important;
-    transform: translateY(-50%) !important;
-    background: rgba(255, 255, 255, 0.12) !important;
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    width: 48px;
-    height: 48px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: white;
-    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-    opacity: 0.85;
-    z-index: 60;
-    cursor: pointer;
-}
-
-#lightbox #prevImage {
-    left: 1.5rem !important;
-}
-
-#lightbox #nextImage {
-    right: 1.5rem !important;
-}
-
-#lightbox #prevImage:hover,
-#lightbox #nextImage:hover {
-    background: rgba(255, 255, 255, 0.28) !important;
-    border-color: rgba(255, 255, 255, 0.4);
-    opacity: 1;
-    transform: translateY(-50%) scale(1.08) !important;
-}
-
-/* Glassmorphic Close Button */
-#lightbox #closeLightbox {
-    position: absolute !important;
-    top: 1.25rem !important;
-    right: 1.25rem !important;
-    background: rgba(255, 255, 255, 0.12);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    width: 42px;
-    height: 42px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: white;
-    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-    opacity: 0.85;
-    z-index: 70;
-    cursor: pointer;
-}
-
-#lightbox #closeLightbox:hover {
-    background: rgba(255, 255, 255, 0.28);
-    border-color: rgba(255, 255, 255, 0.4);
-    opacity: 1;
-    transform: scale(1.08);
-}
-
-/* Enhanced navigation buttons for slideshow mode */
-#lightbox.slideshow-mode #prevImage,
-#lightbox.slideshow-mode #nextImage {
-    background: rgba(0, 0, 0, 0.6) !important;
-    width: 56px;
-    height: 56px;
-}
-
-#lightbox.slideshow-mode #prevImage:hover,
-#lightbox.slideshow-mode #nextImage:hover {
-    background: rgba(0, 0, 0, 0.9) !important;
-}
-
-/* Lightbox Content Container - Manages overall layout */
-.lightbox-content-container {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    width: 95vw;
-    height: 95vh;
-    max-width: 95vw;
-    max-height: 95vh;
-    gap: 1rem;
-}
-
-/* Slideshow Mode - Fullscreen */
-.lightbox-content-container.slideshow-mode {
-    width: 100vw;
-    height: 100vh;
-    max-width: 100vw;
-    max-height: 100vh;
-    gap: 0;
-}
-
-/* Responsive Lightbox Image Container - Dedicated space for image */
-.lightbox-image-container {
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 100%;
-    height: calc(100% - 80px); /* Reserve space for info bar */
-    max-width: 100%;
-    overflow: hidden;
-}
-
-/* Slideshow Mode - Full image container */
-.lightbox-content-container.slideshow-mode .lightbox-image-container {
-    height: 100%;
-}
-
-/* Lightbox Image Scale Entrance & Exit Transitions (Task 2.1) */
-.lightbox-image {
-    max-width: 100%;
-    max-height: 100%;
-    width: auto;
-    height: auto;
-    object-fit: contain;
-    border-radius: 0.75rem;
-    box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.7);
-    transform: scale(0.95);
-    opacity: 0;
-    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease;
-    will-change: transform, opacity;
-}
-
-#lightbox.lightbox-active .lightbox-image {
-    transform: scale(1);
-    opacity: 1;
-}
-
-#lightbox.lightbox-exiting .lightbox-image {
-    transform: scale(0.95);
-    opacity: 0;
-}
-
-/* Slideshow Mode - Full image */
-.lightbox-content-container.slideshow-mode .lightbox-image {
-    max-width: 100%;
-    max-height: 100%;
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-    border-radius: 0;
-    box-shadow: none;
-    transform: scale(1);
-    opacity: 1;
-}
-
-/* Lightbox Info Bar - Glassmorphism floating panel */
-.lightbox-info-bar {
-    position: relative;
-    width: 100%;
-    max-width: 600px;
-    background: rgba(17, 17, 24, 0.72);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    color: white;
-    padding: 1rem 1.5rem;
-    border-radius: 1rem;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
-    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-    margin-top: 0.5rem;
-}
-
-.lightbox-info-bar:hover {
-    background: rgba(17, 17, 24, 0.85);
-    border-color: rgba(255, 255, 255, 0.22);
-    transform: translateY(-2px);
-    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.55);
-}
-
-/* Mobile optimizations for lightbox */
-@media (max-width: 768px) {
-    .lightbox-content-container {
-        width: 98vw;
-        height: 98vh;
-        max-width: 98vw;
-        max-height: 98vh;
-        gap: 0.75rem;
+    .gallery-action-btn:hover {
+        background: white;
+        transform: scale(1.1);
     }
-    
-    .lightbox-image-container {
-        height: calc(100% - 70px); /* Smaller info bar on mobile */
+
+    .gallery-action-btn.favorited:hover {
+        background: #c50020;
     }
-    
-    .lightbox-image {
-        border-radius: 0.25rem;
-    }
-    
-    .lightbox-info-bar {
-        padding: 0.75rem 1rem;
-        border-radius: 0.5rem;
-        font-size: 0.875rem;
-        margin-top: 0.25rem;
+
+    .gallery-action-btn.slideshow-btn:hover {
+        background: #E60023;
+        color: white;
     }
 }
 
-/* Very small screens */
-@media (max-width: 480px) {
-    .lightbox-content-container {
-        width: 100vw;
-        height: 100vh;
-        max-width: 100vw;
-        max-height: 100vh;
-        gap: 0.5rem;
-    }
-    
-    .lightbox-image-container {
-        height: calc(100% - 60px); /* Even smaller info bar on very small screens */
-    }
-    
-    .lightbox-info-bar {
-        padding: 0.5rem 0.75rem;
-        border-radius: 0.375rem;
-        font-size: 0.8rem;
-        margin-top: 0;
-        
-        /* Stack info and buttons vertically on very small screens */
-    }
-    
-    .lightbox-info-bar .flex {
-        flex-direction: column;
-        gap: 0.75rem;
-        align-items: flex-start;
-    }
-    
-    .lightbox-info-bar .flex .flex {
-        flex-direction: row;
-        align-items: center;
-        align-self: flex-end;
-    }
-}
-
-/* Landscape orientation adjustments */
-@media (max-height: 600px) and (orientation: landscape) {
-    .lightbox-content-container {
-        flex-direction: row;
-        gap: 1rem;
-    }
-    
-    .lightbox-image-container {
-        height: 100%;
-        width: calc(100% - 300px); /* Reserve space for side info panel */
-    }
-    
-    .lightbox-info-bar {
-        width: 280px;
-        height: fit-content;
-        max-height: 100%;
-        margin-top: 0;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-    }
-}
-
-/* Smooth transitions for theme changes */
-* {
-    transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
-}
-
-/* Loading skeleton animation */
-@keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
-}
-
-/* Image wrapper for aspect ratio placeholder */
-/* Image wrapper for aspect ratio placeholder */
-.image-wrapper {
-    position: relative;
-    width: 100%;
-    background: #f1f2f4;
-    overflow: hidden;
-}
-
-.dark .image-wrapper {
-    background: #1f2937;
-}
-
-/* High-performance GPU-accelerated Shimmer Wave (Task 2.4) */
-.image-wrapper::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(
-        90deg,
-        rgba(255, 255, 255, 0) 0%,
-        rgba(255, 255, 255, 0.45) 50%,
-        rgba(255, 255, 255, 0) 100%
-    );
-    transform: translateX(-100%);
-    animation: skeleton-shimmer 1.5s infinite ease-in-out;
-    pointer-events: none;
-    z-index: 1;
-}
-
-.dark .image-wrapper::after {
-    background: linear-gradient(
-        90deg,
-        rgba(255, 255, 255, 0) 0%,
-        rgba(255, 255, 255, 0.08) 50%,
-        rgba(255, 255, 255, 0) 100%
-    );
-}
-
-/* Cease shimmer once image has loaded */
-.image-wrapper.loaded::after,
-.image-wrapper:has(.lazy-loaded)::after {
-    display: none;
-}
-
-@keyframes skeleton-shimmer {
-    100% {
-        transform: translateX(100%);
-    }
-}
-
-/* Lazy image inside wrapper */
-.lazy-image {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    opacity: 0;
-    transition: opacity 0.35s ease-out;
-}
-
-.lazy-image.lazy-loaded {
-    opacity: 1;
-}
-
-/* Custom scrollbar */
-::-webkit-scrollbar {
-    width: 8px;
-}
-
-::-webkit-scrollbar-track {
-    background: #f1f1f1;
-}
-
-.dark ::-webkit-scrollbar-track {
-    background: #374151;
-}
-
-::-webkit-scrollbar-thumb {
-    background: #c1c1c1;
-    border-radius: 4px;
-}
-
-.dark ::-webkit-scrollbar-thumb {
-    background: #6b7280;
-}
-
-::-webkit-scrollbar-thumb:hover {
-    background: #a8a8a8;
-}
-
-.dark ::-webkit-scrollbar-thumb:hover {
-    background: #9ca3af;
-}
-
-/* Responsive improvements */
-@media (max-width: 640px) {
-    .gallery-item-actions {
-        position: static;
-        opacity: 1;
-        justify-content: flex-end;
-        margin-top: 0.5rem;
-        padding: 0 1rem 1rem;
-    }
-    
+/* Touch screens: clean Pinterest-style cards — photo only, small always-visible buttons */
+@media (hover: none), (pointer: coarse) {
     .gallery-item-overlay {
-        position: static;
+        display: none;
+    }
+
+    .gallery-item-actions {
         opacity: 1;
-        background: none;
-        padding: 1rem;
+        transform: none;
+        top: 0.4rem;
+        right: 0.4rem;
+        gap: 0.35rem;
     }
-    
-    .gallery-item-info {
-        color: inherit;
+
+    .gallery-action-btn {
+        width: 1.9rem;
+        height: 1.9rem;
+        font-size: 0.8rem;
+        background: rgba(255, 255, 255, 0.82);
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
     }
-    
-    .dark .gallery-item-info {
-        color: #d1d5db;
+
+    .gallery-action-btn.slideshow-btn {
+        display: none;
+    }
+
+    .gallery-item:active {
+        transform: scale(0.98);
+    }
+
+    .gallery-action-btn:active {
+        transform: scale(0.88);
     }
 }
 
-/* Search highlight */
-.search-highlight {
-    background-color: #fef3c7;
-    padding: 0.125rem 0.25rem;
-    border-radius: 0.25rem;
-}
-
-.dark .search-highlight {
-    background-color: #92400e;
-    color: #fbbf24;
+/* Slideshow indicator (outline: does not change the card's size) */
+.gallery-item.slideshow-active {
+    outline: 3px solid #E60023;
+    outline-offset: 2px;
+    box-shadow: 0 0 20px rgba(230, 0, 35, 0.3);
 }
 
 /* Favorites badge */
@@ -687,29 +446,420 @@
     font-size: 0.75rem;
     font-weight: bold;
     z-index: 10;
+    font-variant-numeric: tabular-nums;
 }
 
-/* Slideshow indicator */
-.slideshow-active {
-    border: 3px solid #E60023 !important;
-    box-shadow: 0 0 20px rgba(230, 0, 35, 0.3) !important;
+/* ===== Welcome screen: drop zone & folder picker ===== */
+.drop-zone {
+    border: 2px dashed #e5e7eb;
+    border-radius: 1.25rem;
+    padding: 1.5rem 1rem 1.1rem;
+    transition: border-color 0.2s ease, background-color 0.2s ease, transform 0.2s ease;
 }
 
-/* Enhanced mobile styles */
-@media (max-width: 768px) {
-    .masonry-grid {
-        column-count: 2;
-        column-gap: 0.5rem;
+.dark .drop-zone {
+    border-color: #4b5563;
+}
+
+.drop-zone.is-dragover {
+    border-color: #E60023;
+    background-color: rgba(230, 0, 35, 0.06);
+    transform: scale(1.02);
+}
+
+.choose-folder-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.75rem 1.5rem;
+    border-radius: 9999px;
+    background: #E60023;
+    color: #fff;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 8px 20px -6px rgba(230, 0, 35, 0.55);
+    transition: background-color 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
+    user-select: none;
+}
+
+.choose-folder-btn:hover {
+    background: #c50020;
+    box-shadow: 0 10px 24px -6px rgba(230, 0, 35, 0.6);
+}
+
+.choose-folder-btn:active {
+    transform: scale(0.97);
+}
+
+#folderInput:focus-visible + .choose-folder-btn {
+    outline: 2px solid #E60023;
+    outline-offset: 3px;
+}
+
+.drop-zone-hint {
+    margin-top: 0.75rem;
+    font-size: 0.8rem;
+    color: #6b7280;
+}
+
+.dark .drop-zone-hint {
+    color: #9ca3af;
+}
+
+/* ===== Lightbox ===== */
+#lightbox {
+    opacity: 0;
+    transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    pointer-events: none;
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    overscroll-behavior: contain;
+    touch-action: pan-y pinch-zoom;
+}
+
+#lightbox:not(.hidden) {
+    pointer-events: auto;
+}
+
+#lightbox.lightbox-active {
+    opacity: 1;
+}
+
+#lightbox.lightbox-exiting {
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* Glassmorphic navigation buttons */
+#lightbox #prevImage,
+#lightbox #nextImage {
+    position: fixed;
+    top: 50%;
+    transform: translateY(-50%);
+    background: rgba(255, 255, 255, 0.12);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    transition: background-color 0.2s ease, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease;
+    opacity: 0.85;
+    z-index: 60;
+    cursor: pointer;
+}
+
+#lightbox #prevImage {
+    left: 1.5rem;
+}
+
+#lightbox #nextImage {
+    right: 1.5rem;
+}
+
+#lightbox #prevImage:hover,
+#lightbox #nextImage:hover {
+    background: rgba(255, 255, 255, 0.28);
+    opacity: 1;
+    transform: translateY(-50%) scale(1.08);
+}
+
+#lightbox #closeLightbox {
+    position: absolute;
+    top: max(1.25rem, env(safe-area-inset-top));
+    right: 1.25rem;
+    background: rgba(255, 255, 255, 0.12);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    transition: background-color 0.2s ease, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease;
+    opacity: 0.85;
+    z-index: 70;
+    cursor: pointer;
+}
+
+#lightbox #closeLightbox:hover {
+    background: rgba(255, 255, 255, 0.28);
+    opacity: 1;
+    transform: scale(1.08);
+}
+
+/* Layout: image stage + info bar */
+.lightbox-content-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: calc(100vw - 9rem);
+    height: 100vh;
+    height: 100dvh;
+    padding: 1.25rem 0;
+    gap: 0.75rem;
+}
+
+.lightbox-image-container {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+/* Size is set in px by LightboxController (exact aspect ratio, no jumps) */
+.lightbox-image {
+    display: block;
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    border-radius: 0.75rem;
+    box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.7);
+    transform: scale(0.96);
+    opacity: 0;
+    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease;
+    user-select: none;
+    -webkit-user-drag: none;
+}
+
+.lightbox-image:not([src]) {
+    visibility: hidden;
+}
+
+#lightbox.lightbox-active .lightbox-image {
+    transform: scale(1);
+    opacity: 1;
+}
+
+#lightbox.lightbox-exiting .lightbox-image {
+    transform: scale(0.96);
+    opacity: 0;
+}
+
+/* Info bar */
+.lightbox-info-bar {
+    flex: 0 0 auto;
+    width: 100%;
+    max-width: 600px;
+    background: rgba(17, 17, 24, 0.72);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    color: white;
+    padding: 0.85rem 1.25rem;
+    border-radius: 1rem;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+}
+
+.lightbox-info-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    min-width: 0;
+}
+
+.lightbox-counter {
+    font-variant-numeric: tabular-nums;
+    color: #fff;
+    font-weight: 600;
+    margin-right: 0.4rem;
+}
+
+.lightbox-counter:not(:empty)::after {
+    content: '•';
+    margin-left: 0.4rem;
+    color: rgba(255, 255, 255, 0.5);
+    font-weight: 400;
+}
+
+.lightbox-action-btn {
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 9999px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.15rem;
+    background: rgba(255, 255, 255, 0.08);
+    transition: background-color 0.15s ease, transform 0.15s ease;
+}
+
+.lightbox-action-btn:hover {
+    background: rgba(255, 255, 255, 0.18);
+    transform: scale(1.08);
+}
+
+/* Slideshow mode: full-screen photo, controls only */
+#lightbox.slideshow-mode {
+    background: #000;
+}
+
+#lightbox.slideshow-mode .lightbox-content-container {
+    width: 100vw;
+    padding: 0;
+}
+
+#lightbox.slideshow-mode .lightbox-info-bar {
+    display: none;
+}
+
+#lightbox.slideshow-mode .lightbox-image {
+    border-radius: 0;
+    box-shadow: none;
+}
+
+#lightbox.slideshow-mode #prevImage,
+#lightbox.slideshow-mode #nextImage {
+    background: rgba(0, 0, 0, 0.5);
+}
+
+#slideshowControls {
+    bottom: max(1.5rem, calc(env(safe-area-inset-bottom) + 0.75rem));
+}
+
+#slideshowInterval option {
+    color: #111827;
+    background: #fff;
+}
+
+/* Phones & small tablets */
+@media (max-width: 767px) {
+    .lightbox-content-container {
+        width: 100vw;
+        padding: max(4rem, calc(env(safe-area-inset-top) + 3.5rem)) 0.5rem max(0.75rem, env(safe-area-inset-bottom));
+        gap: 0.5rem;
     }
-    
-    .gallery-item {
-        margin-bottom: 0.5rem;
-        border-radius: 0.75rem;
+
+    .lightbox-image {
+        border-radius: 0.5rem;
     }
-    
-    #searchInput {
-        width: 200px;
+
+    .lightbox-info-bar {
+        padding: 0.65rem 0.9rem;
+        border-radius: 0.85rem;
+        font-size: 0.875rem;
     }
+
+    .lightbox-action-btn {
+        width: 2.25rem;
+        height: 2.25rem;
+        font-size: 1rem;
+    }
+
+    /* Arrows sit over the photo edges; swipe also works */
+    #lightbox #prevImage,
+    #lightbox #nextImage {
+        width: 40px;
+        height: 40px;
+        font-size: 1.1rem;
+        background: rgba(0, 0, 0, 0.35);
+    }
+
+    #lightbox #prevImage {
+        left: 0.75rem;
+    }
+
+    #lightbox #nextImage {
+        right: 0.75rem;
+    }
+
+    #lightbox #closeLightbox {
+        right: 0.75rem;
+        top: max(0.75rem, env(safe-area-inset-top));
+    }
+
+    #slideshowControls {
+        width: max-content;
+        max-width: calc(100vw - 1.5rem);
+        padding: 0.5rem 1rem;
+    }
+
+    #slideshowControls > div {
+        gap: 0.9rem;
+    }
+}
+
+/* Landscape phones: info bar beside the photo */
+@media (max-height: 500px) and (orientation: landscape) {
+    .lightbox-content-container {
+        flex-direction: row;
+        width: calc(100vw - 7rem);
+        padding: 0.75rem 0;
+    }
+
+    .lightbox-image-container {
+        height: 100%;
+    }
+
+    .lightbox-info-bar {
+        width: 240px;
+        max-width: 240px;
+    }
+
+    .lightbox-info-row {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+}
+
+/* ===== Theme switch: animate colours only while switching ===== */
+.theme-switching,
+.theme-switching * {
+    transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease !important;
+}
+
+/* ===== Misc ===== */
+.search-highlight {
+    background-color: #fef3c7;
+    padding: 0.125rem 0.25rem;
+    border-radius: 0.25rem;
+}
+
+.dark .search-highlight {
+    background-color: #92400e;
+    color: #fbbf24;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+    width: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: #f1f1f1;
+}
+
+.dark ::-webkit-scrollbar-track {
+    background: #18181b;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 4px;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+    background: #52525b;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #a8a8a8;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+    background: #71717a;
 }
 
 /* Print styles */
@@ -720,34 +870,14 @@
     header {
         display: none !important;
     }
-    
+
     .gallery-item {
         break-inside: avoid;
         page-break-inside: avoid;
     }
 }
 
-/* Lightbox loading state */
-.lightbox-image {
-    transition: opacity 0.3s ease;
-}
-
-.lightbox-image.loading {
-    opacity: 0.5;
-}
-
-/* Touch feedback for mobile */
-@media (hover: none) {
-    .gallery-item:active {
-        transform: scale(0.98);
-    }
-    
-    .gallery-action-btn:active {
-        transform: scale(0.9);
-    }
-}
-
-/* Accessibility improvements */
+/* Accessibility */
 .sr-only {
     position: absolute;
     width: 1px;
@@ -760,7 +890,6 @@
     border: 0;
 }
 
-/* Focus visible styles for keyboard navigation */
 .gallery-action-btn:focus-visible,
 .header-icon-btn:focus-visible,
 button:focus-visible {
@@ -768,7 +897,6 @@ button:focus-visible {
     outline-offset: 2px;
 }
 
-/* Reduced motion preference */
 @media (prefers-reduced-motion: reduce) {
     *,
     *::before,
@@ -779,7 +907,7 @@ button:focus-visible {
     }
 }
 
-/* ===== Multi-Folder Selection Styles ===== */
+/* ===== Multi-Folder Selection ===== */
 .folder-item {
     display: flex;
     align-items: center;
@@ -787,7 +915,7 @@ button:focus-visible {
     background: #f3f4f6;
     border-radius: 0.75rem;
     padding: 0.75rem 1rem;
-    transition: all 0.2s ease;
+    transition: background-color 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
     border: 2px solid transparent;
     cursor: pointer;
 }
@@ -823,7 +951,7 @@ button:focus-visible {
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: all 0.2s ease;
+    transition: background-color 0.2s ease, border-color 0.2s ease;
     cursor: pointer;
     flex-shrink: 0;
 }
@@ -882,7 +1010,7 @@ button:focus-visible {
     border: none;
     cursor: pointer;
     border-radius: 4px;
-    transition: all 0.2s ease;
+    transition: color 0.2s ease, background-color 0.2s ease;
 }
 
 .folder-remove-btn:hover {
@@ -890,7 +1018,6 @@ button:focus-visible {
     background: rgba(239, 68, 68, 0.1);
 }
 
-/* Select All / Deselect All buttons */
 .folder-selection-controls {
     display: flex;
     gap: 0.5rem;
@@ -906,7 +1033,7 @@ button:focus-visible {
     background: white;
     color: #6b7280;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 .dark .folder-selection-btn {
@@ -924,40 +1051,3 @@ button:focus-visible {
     background: #4b5563;
     color: #e5e7eb;
 }
-
-/* ===== Slideshow Button on Gallery Item ===== */
-.gallery-action-btn.slideshow-btn {
-    background: rgba(255, 255, 255, 0.9);
-}
-
-.gallery-action-btn.slideshow-btn:hover {
-    background: #E60023;
-    color: white;
-}
-
-.gallery-action-btn.slideshow-btn i {
-    font-size: 0.75rem;
-}
-
-/* ===== Virtual Grid Windowing & Recycling Styles ===== */
-.gallery-item.mounted {
-    opacity: 1;
-    transform: none;
-    animation: none;
-}
-
-.gallery-item.virtualized {
-    opacity: 1;
-    transform: none;
-    animation: none;
-}
-
-/* Smooth fade-in for hydrated images */
-.gallery-item .lazy-image {
-    opacity: 0;
-    transition: opacity 0.3s ease;
-}
-
-.gallery-item .lazy-image.lazy-loaded {
-    opacity: 1;
-}
