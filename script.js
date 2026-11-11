@@ -25,7 +25,8 @@ import {
     processImages,
     collectDroppedFolders,
     collectFilesFromDirectoryHandle,
-    IMAGE_EXTENSIONS
+    isImageFile,
+    SkippedFiles
 } from './modules/ImageProcessor.js';
 
 import {
@@ -352,17 +353,33 @@ export class PhotoGallery {
         const files = Array.from(event.target.files);
         if (files.length === 0) return;
 
-        const imageFiles = files.filter(f => IMAGE_EXTENSIONS.test(f.name));
+        const firstPath = files[0].webkitRelativePath || files[0].name;
+        const parts = firstPath.split('/');
+        const folderName = parts.length > 1 ? parts[0] : 'Selected Folder';
+
+        const skipped = new SkippedFiles();
+        const imageFiles = files.filter(f => {
+            if (isImageFile(f)) return true;
+            skipped.add(f.name);
+            return false;
+        });
+        this.folderInput.value = '';
+
         if (imageFiles.length === 0) {
-            this.showError('No supported images found in selected folder.');
-            this.folderInput.value = '';
+            this.showError(this._noPhotosMessage(`“${folderName}”`, skipped));
             return;
         }
+        this._addFolder(folderName, imageFiles);
+    }
 
-        const firstPath = imageFiles[0].webkitRelativePath || imageFiles[0].name;
-        const parts = firstPath.split('/');
-        this._addFolder(parts.length > 1 ? parts[0] : 'Selected Folder', imageFiles);
-        this.folderInput.value = '';
+    /** "No photos" message that says what the folder contained instead. */
+    _noPhotosMessage(where, skipped) {
+        const found = skipped.top(3);
+        if (found.length === 0) return `No photos found in ${where}.`;
+        const list = found.map(([ext, n]) => `${n} ${ext}`).join(', ');
+        const heic = found.some(([ext]) => ext === '.heic' || ext === '.heif');
+        return `No supported photos in ${where} (found ${list}).` +
+            (heic ? ' HEIC photos need to be converted to JPG first.' : '');
     }
 
     /**
@@ -404,9 +421,10 @@ export class PhotoGallery {
         }
 
         this.showLoading(true);
+        const skipped = new SkippedFiles();
         let files;
         try {
-            files = await collectFilesFromDirectoryHandle(handle);
+            files = await collectFilesFromDirectoryHandle(handle, skipped);
         } catch (err) {
             console.warn('Could not read folder:', err);
             this.showError(`“${handle.name}” could not be opened. It may have been moved or deleted.`);
@@ -416,7 +434,7 @@ export class PhotoGallery {
         }
 
         if (files.length === 0) {
-            this.showError(`No supported images found in “${handle.name}”.`);
+            this.showError(this._noPhotosMessage(`“${handle.name}”`, skipped));
             return false;
         }
         this._addFolder(handle.name, files, handle, storeId);
@@ -425,9 +443,10 @@ export class PhotoGallery {
 
     async handleDroppedFiles(dataTransfer) {
         this.showLoading(true);
+        const skipped = new SkippedFiles();
         let folders = [];
         try {
-            folders = await collectDroppedFolders(dataTransfer);
+            folders = await collectDroppedFolders(dataTransfer, skipped);
         } catch (err) {
             console.error('Error handling dropped files:', err);
             this.showError('Failed to process dropped files.');
@@ -437,7 +456,7 @@ export class PhotoGallery {
         }
 
         if (folders.length === 0) {
-            this.showError('No supported images found in dropped files or folders.');
+            this.showError(this._noPhotosMessage('what you dropped', skipped));
             return;
         }
         for (const folder of folders) {

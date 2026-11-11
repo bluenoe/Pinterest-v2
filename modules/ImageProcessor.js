@@ -14,14 +14,54 @@
 // Constants
 // ---------------------------------------------------------------------------
 
-export const IMAGE_EXTENSIONS = /\.(jpg|jpeg|png|gif|bmp|webp|avif|svg)$/i;
+// .jfif / .pjpeg / .pjp are plain JPEGs (Windows often saves web images as .jfif)
+export const IMAGE_EXTENSIONS = /\.(jpe?g|jfif|pjpeg|pjp|png|apng|gif|bmp|webp|avif|svg)$/i;
 
 // How many images are decoded in parallel while reading dimensions.
 const METADATA_CONCURRENCY = 8;
 
+// How many files are opened in parallel while reading a folder.
+const READ_CONCURRENCY = 32;
+
 /** True for files the gallery can display (by extension, like the folder picker). */
 export function isImageFile(file) {
     return IMAGE_EXTENSIONS.test(file.name);
+}
+
+/**
+ * Counts the files a folder import skipped, by extension, so "no photos found"
+ * can say what was there instead (e.g. "120 .heic").
+ */
+export class SkippedFiles {
+    constructor() {
+        this.counts = new Map();
+    }
+
+    add(name) {
+        const dot = name.lastIndexOf('.');
+        if (dot <= 0) return; // no extension, or a hidden file like ".DS_Store"
+        const ext = name.slice(dot).toLowerCase();
+        this.counts.set(ext, (this.counts.get(ext) || 0) + 1);
+    }
+
+    /** @returns {Array<[string, number]>} most common extensions first */
+    top(n = 3) {
+        return [...this.counts].sort((a, b) => b[1] - a[1]).slice(0, n);
+    }
+}
+
+/** Run fn over items with at most `limit` calls in flight; keeps the order. */
+async function mapLimit(items, limit, fn) {
+    const results = new Array(items.length);
+    let next = 0;
+    const worker = async () => {
+        while (next < items.length) {
+            const i = next++;
+            results[i] = await fn(items[i]);
+        }
+    };
+    await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+    return results;
 }
 
 /**
@@ -245,16 +285,20 @@ export async function processImages(files, blobUrlCache, onProgress) {
  *
  * @param {FileSystemEntry} entry
  * @param {File[]}          result  - Array to push files into (mutated).
+ * @param {SkippedFiles}    [skipped] - Collects files that are not supported images.
  * @returns {Promise<void>}
  */
-export function collectFilesFromEntry(entry, result) {
+export function collectFilesFromEntry(entry, result, skipped) {
     return new Promise(resolve => {
         if (entry.isFile) {
+            if (!IMAGE_EXTENSIONS.test(entry.name)) {
+                skipped?.add(entry.name);
+                resolve();
+                return;
+            }
             entry.file(
                 file => {
-                    if (isImageFile(file)) {
-                        result.push(setRelativePath(file, entry.fullPath.replace(/^\//, '')));
-                    }
+                    result.push(setRelativePath(file, entry.fullPath.replace(/^\//, '')));
                     resolve();
                 },
                 () => resolve()
@@ -268,7 +312,7 @@ export function collectFilesFromEntry(entry, result) {
                             resolve();
                         } else {
                             for (const e of entries) {
-                                await collectFilesFromEntry(e, result);
+                                await collectFilesFromEntry(e, result, skipped);
                             }
                             readBatch();
                         }
@@ -285,29 +329,50 @@ export function collectFilesFromEntry(entry, result) {
 
 /**
  * Recursively collect image files from a FileSystemDirectoryHandle
- * (File System Access API: remembered folders, Chrome/Edge drag-and-drop).
+ * (File System Access API: folder picker, remembered folders, Chrome/Edge drag-and-drop).
+ *
+ * A subfolder that cannot be read (system folder, no permission, removed
+ * meanwhile) is skipped so the rest of the folder still opens. Only an
+ * unreadable top folder throws.
  *
  * @param {FileSystemDirectoryHandle} dirHandle
- * @param {string} [prefix] - Path of this folder relative to the opened folder.
+ * @param {SkippedFiles} [skipped] - Collects files that are not supported images.
  * @returns {Promise<File[]>}
  */
-export async function collectFilesFromDirectoryHandle(dirHandle, prefix = dirHandle.name) {
+export async function collectFilesFromDirectoryHandle(dirHandle, skipped) {
     const files = [];
     const walk = async (dir, path) => {
+        const fileHandles = [];
+        const subfolders = [];
         for await (const handle of dir.values()) {
             const childPath = `${path}/${handle.name}`;
             if (handle.kind === 'directory') {
-                await walk(handle, childPath);
+                subfolders.push([handle, childPath]);
             } else if (IMAGE_EXTENSIONS.test(handle.name)) {
-                try {
-                    files.push(setRelativePath(await handle.getFile(), childPath));
-                } catch {
-                    // Unreadable file (deleted meanwhile, permission): skip it
-                }
+                fileHandles.push([handle, childPath]);
+            } else {
+                skipped?.add(handle.name);
+            }
+        }
+
+        const read = await mapLimit(fileHandles, READ_CONCURRENCY, async ([handle, childPath]) => {
+            try {
+                return setRelativePath(await handle.getFile(), childPath);
+            } catch {
+                return null; // Unreadable file (deleted meanwhile, permission): skip it
+            }
+        });
+        for (const file of read) if (file) files.push(file);
+
+        for (const [handle, childPath] of subfolders) {
+            try {
+                await walk(handle, childPath);
+            } catch (err) {
+                console.warn(`Skipping folder that could not be read: ${childPath}`, err);
             }
         }
     };
-    await walk(dirHandle, prefix);
+    await walk(dirHandle, dirHandle.name);
     return files;
 }
 
@@ -320,9 +385,10 @@ export async function collectFilesFromDirectoryHandle(dirHandle, prefix = dirHan
  * empties it as soon as the drop event handler returns.
  *
  * @param {DataTransfer} dataTransfer
+ * @param {SkippedFiles} [skipped] - Collects files that are not supported images.
  * @returns {Promise<Array<{name: string, files: File[], handle: FileSystemDirectoryHandle|null}>>}
  */
-export async function collectDroppedFolders(dataTransfer) {
+export async function collectDroppedFolders(dataTransfer, skipped) {
     const items = Array.from(dataTransfer.items || []).filter(item => item.kind === 'file');
     const grabbed = items.map(item => ({
         handle: typeof item.getAsFileSystemHandle === 'function'
@@ -334,18 +400,30 @@ export async function collectDroppedFolders(dataTransfer) {
     const fallbackFiles = items.length === 0 ? Array.from(dataTransfer.files || []) : [];
 
     const folders = [];
-    const loose = fallbackFiles.filter(isImageFile);
+    const loose = [];
+    const addLoose = (file) => {
+        if (isImageFile(file)) loose.push(file);
+        else skipped?.add(file.name);
+    };
+    fallbackFiles.forEach(addLoose);
 
     for (const g of grabbed) {
         const handle = g.handle ? await g.handle : null;
         if (handle && handle.kind === 'directory') {
-            folders.push({ name: handle.name, files: await collectFilesFromDirectoryHandle(handle), handle });
-        } else if (g.entry && g.entry.isDirectory) {
+            try {
+                folders.push({ name: handle.name, files: await collectFilesFromDirectoryHandle(handle, skipped), handle });
+                continue;
+            } catch (err) {
+                console.warn(`Could not read dropped folder "${handle.name}" via its handle:`, err);
+                // fall through to the entry API below
+            }
+        }
+        if (g.entry && g.entry.isDirectory) {
             const files = [];
-            await collectFilesFromEntry(g.entry, files);
+            await collectFilesFromEntry(g.entry, files, skipped);
             folders.push({ name: g.entry.name, files, handle: null });
-        } else if (g.file && isImageFile(g.file)) {
-            loose.push(g.file);
+        } else if (g.file && !(handle && handle.kind === 'directory')) {
+            addLoose(g.file);
         }
     }
 
