@@ -45,7 +45,6 @@ import { ThumbnailService } from './modules/ThumbnailService.js';
 import { LightboxController } from './modules/LightboxController.js';
 import { icon } from './modules/icons.js';
 import {
-    isFolderMemorySupported,
     isFolderMemoryAvailable,
     listFolders,
     rememberFolder,
@@ -383,22 +382,14 @@ export class PhotoGallery {
     }
 
     /**
-     * "Choose a folder": Chrome/Edge use the File System Access picker so the
-     * folder can be remembered; other browsers fall back to the classic picker.
+     * "Choose a folder" uses the classic picker in every browser. Chrome's
+     * File System Access picker (showDirectoryPicker) would let us remember
+     * the folder, but it refuses Downloads, Desktop, Documents, the user folder
+     * and drive roots, and reports that exactly like Cancel. Folders dropped
+     * onto the page still come with a handle and are remembered.
      */
-    async chooseFolder() {
-        if (!isFolderMemorySupported()) {
-            this.folderInput?.click();
-            return;
-        }
-        let handle;
-        try {
-            handle = await window.showDirectoryPicker({ id: 'gallery', mode: 'read' });
-        } catch (err) {
-            if (err?.name !== 'AbortError') this.folderInput?.click(); // e.g. blocked in an iframe
-            return;
-        }
-        await this._addFolderFromHandle(handle);
+    chooseFolder() {
+        this.folderInput?.click();
     }
 
     async _isAlreadyAdded(handle) {

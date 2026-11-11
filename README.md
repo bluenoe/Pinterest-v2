@@ -6,7 +6,7 @@ A quiet, Pinterest-style viewer for the photos on your computer. Open a folder a
 
 - Masonry grid that stays put while more photos load
 - Smooth scrolling with large folders: thumbnails are made in a background worker and kept between visits
-- Remembers your folders (Chrome, Edge): reopen the last session with one click
+- Remembers folders you drag onto the page (Chrome, Edge): reopen the last session with one click
 - Albums from subfolders, search by file or album name
 - Sort by name, newest, oldest or largest
 - Favorites, saved in the browser
@@ -20,7 +20,9 @@ A quiet, Pinterest-style viewer for the photos on your computer. Open a folder a
 2. Choose a folder, or drag one onto the page. Add more folders if you like.
 3. Open the photos.
 
-Next time, Chrome and Edge show **Continue** with the folders from your last visit. The browser asks once for permission to read them; choose "Allow on every visit" to skip the question afterwards.
+"Choose a folder" uses the browser's standard folder picker, which works with any folder, including Downloads, Desktop and Documents. Chrome asks you to confirm before it hands the files to the page; nothing is uploaded.
+
+Folders you **drag** onto the page are remembered in Chrome and Edge: next time the page shows **Continue** with the folders from your last visit. The browser asks once for permission to read them; choose "Allow on every visit" to skip the question afterwards.
 
 ## Keyboard
 
@@ -39,7 +41,7 @@ Next time, Chrome and Edge show **Continue** with the folders from your last vis
 
 | | Grid, viewer, favorites | Remembered folders |
 | --- | --- | --- |
-| Chrome, Edge | yes | yes |
+| Chrome, Edge | yes | yes, for dragged folders |
 | Firefox, Safari | yes | no (pick the folder each time) |
 
 The page must be served over `http(s)`. Opening `index.html` directly from disk (`file://`) blocks the JavaScript modules and the thumbnail worker.
